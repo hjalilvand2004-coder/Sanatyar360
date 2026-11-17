@@ -68,10 +68,68 @@ jobs:
             Sanatyar360-portable-linux.tar.gz
           if-no-files-found: ignore
 
-      - name: Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
+  release:
+    # انتشار ریلیز واحد — پس از اتمام هر دو بیلد، فقط برای تگ‌ها
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          make_latest: true
+          body: |
+            # صنعت‌یار۳۶۰ — ریلیز ${{ github.ref_name }}
+
+            **اتصال دانشجو به صنعت | زیرسیستم دانشجو۳۶۰**
+
+            ## بسته‌های پرتیبل (بدون نیاز به نصب پایتون یا PostgreSQL)
+
+            | فایل | پلتفرم |
+            |---|---|
+            | `Sanatyar360-portable-windows.zip` | ویندوز 10/11 (x64) |
+            | `Sanatyar360-portable-linux.tar.gz` | لینوکس (x64) |
+
+            ## نصب و اجرا
+
+            1. بسته را دانلود و استخراج کنید.
+            2. فایل `Sanatyar360.exe` (ویندوز) یا `./Sanatyar360` (لینوکس) را اجرا کنید.
+            3. مرورگر به‌صورت خودکار روی `http://localhost:8092` باز می‌شود.
+
+            پایگاه داده SQLite به‌صورت خودکار کنار برنامه ساخته و با داده نمونه پر می‌شود.
+            راهنمای کامل: `README-portable-fa.md` داخل هر بسته.
+
+            ## ورود
+
+            - **ورود یکپارچه (SSO)** — دکمه نارنجی «ورود یکپارچه با حساب دانشجو۳۶۰»؛
+              جریان کامل OIDC با Client ID `sanatyar360` و کلید سامانه `sanatyar`.
+              در نبود سامانه مادر، شبیه‌ساز داخلی با همان جریان اجرا می‌شود.
+            - **ورود محلی** — حساب‌های نمونه با رمز `uiis1234`
+              (مثلاً `cio@nav.ac.ir` مدیر دفتر ارتباط با صنعت).
+
+            ## گزینه‌های خط فرمان
+
+            ```
+            Sanatyar360.exe --port 8092        # پورت (پیش‌فرض 8092)
+            Sanatyar360.exe --host 0.0.0.0     # دسترسی از شبکه
+            Sanatyar360.exe --no-browser       # باز نکردن مرورگر
+            Sanatyar360.exe --reset-db         # بازنشانی داده نمونه
+            ```
+
+            ## امکانات این نسخه
+
+            - چرخه کامل تعامل: ثبت مسئله ← بررسی و انتشار ← تطبیق ← همکاری ← دستاورد
+            - موتور تطبیق قواعدی نسخه‌دار (`rules-v1.0`) با ثبت دلیل پیشنهادها
+            - ورود یکپارچه OIDC با سامانه مادر دانشجو۳۶۰ + نگاشت نقش‌های `sanatyar.*`
+            - حسابرسی کامل عملیات حساس، سطوح محرمانگی، ایزولاسیون سازمانی
+            - رابط فارسی RTL با تم تیره گلس‌مورفیسم، داشبورد و تحلیل‌های بصری
+            - 84 سناریوی پذیرش e2e — موفق روی PostgreSQL و SQLite
           files: |
-            Sanatyar360-portable-windows.zip
-            Sanatyar360-portable-linux.tar.gz
+            artifacts/Sanatyar360-portable-windows.zip
+            artifacts/Sanatyar360-portable-linux.tar.gz
