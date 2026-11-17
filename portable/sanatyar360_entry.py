@@ -25,10 +25,30 @@ except OSError:
 LOG_PATH = os.path.join(BASE_DIR, "sanatyar360.log")
 DB_PATH = os.path.join(BASE_DIR, "sanatyar360.db")
 
+# کنسول ویندوز معمولاً cp1252 است — چاپ متن فارسی بدون این تنظیم برنامه را می‌کشد
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+def safe_print(s: str):
+    """چاپ مقاوم — هیچ‌وقت برنامه را به‌خاطر encoding نمی‌کشد."""
+    try:
+        print(s, flush=True)
+    except UnicodeEncodeError:
+        try:
+            print(s.encode("ascii", "replace").decode(), flush=True)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 
 def log(msg: str):
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
-    print(line, flush=True)
+    safe_print(line)
     try:
         with open(LOG_PATH, "a", encoding="utf-8") as f:
             f.write(line + "\n")
@@ -161,11 +181,11 @@ def main():
     except BaseException:
         err = traceback.format_exc()
         log("خطا در اجرا:\n" + err)
-        print("\n" + "=" * 60)
-        print("برنامه با خطا متوقف شد.")
-        print(f"جزئیات در فایل زیر ثبت شد:\n  {LOG_PATH}")
-        print("اگر این خطا تکرار شد، محتوای فایل لاگ را برای پشتیبانی بفرستید.")
-        print("=" * 60 + "\n")
+        safe_print("\n" + "=" * 60)
+        safe_print("برنامه با خطا متوقف شد.")
+        safe_print(f"جزئیات در فایل زیر ثبت شد:\n  {LOG_PATH}")
+        safe_print("اگر این خطا تکرار شد، محتوای فایل لاگ را برای پشتیبانی بفرستید.")
+        safe_print("=" * 60 + "\n")
         if FROZEN and sys.stdin is not None and sys.stdin.isatty():
             try:
                 input("برای بستن این پنجره Enter بزنید…")
