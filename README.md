@@ -24,12 +24,15 @@
 
 ### ۱) نسخه پرتیبل (بدون نیاز به پایتون!)
 
-یک فایل اجرایی مستقل با پایگاه داده SQLite و داده نمونه:
+پوشه مستقل با پایگاه داده SQLite و داده نمونه (بدون نصب هیچ پیش‌نیازی):
 
 ```bash
+# بعد از استخراج بسته، داخل پوشه Sanatyar360:
 Sanatyar360.exe            # ویندوز — دوبار کلیک، مرورگر خودکار باز می‌شود
 ./Sanatyar360              # لینوکس
 ```
+
+> اگر SmartScreen پیام داد: More info ← Run anyway. در صورت بروز مشکل `sanatyar360.log` کنار برنامه را ببینید.
 
 راهنمای کامل: [portable/README-portable-fa.md](portable/README-portable-fa.md)
 فایل‌های آماده: از **GitHub Actions** (تب Actions → آخرین اجرا → Artifacts) یا از **Releases** (با push تگ) دانلود کنید.

@@ -41,23 +41,57 @@ jobs:
       - name: Build portable executable
         run: pyinstaller portable/sanatyar360.spec --distpath dist_portable --workpath build_pyinstaller
 
+      - name: Smoke test portable executable (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist_portable\Sanatyar360\Sanatyar360.exe" -ArgumentList "--no-browser","--port","8099" -PassThru -NoNewWindow
+          $ok = $false
+          foreach ($i in 1..45) {
+            Start-Sleep -Seconds 2
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:8099/api/v1/health" -UseBasicParsing -TimeoutSec 5
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch {}
+          }
+          try {
+            $h = Invoke-WebRequest -Uri "http://127.0.0.1:8099/" -UseBasicParsing -TimeoutSec 5
+            if ($h.StatusCode -ne 200) { $ok = $false }
+          } catch { $ok = $false }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (Test-Path sanatyar360.log) { Get-Content sanatyar360.log }
+          if (-not $ok) { Write-Host "::error::Windows portable exe failed health check"; exit 1 }
+          Write-Host "WINDOWS SMOKE TEST OK"
+
+      - name: Smoke test portable executable (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          ./dist_portable/Sanatyar360/Sanatyar360 --no-browser --port 8099 &
+          EXE_PID=$!
+          ok=0
+          for i in $(seq 1 45); do
+            sleep 2
+            if curl -sf http://127.0.0.1:8099/api/v1/health > /dev/null; then ok=1; break; fi
+          done
+          curl -sf -o /dev/null http://127.0.0.1:8099/ || ok=0
+          kill $EXE_PID 2>/dev/null || true
+          cat sanatyar360.log 2>/dev/null || true
+          if [ "$ok" -ne 1 ]; then echo "::error::Linux portable exe failed health check"; exit 1; fi
+          echo "LINUX SMOKE TEST OK"
+
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          mkdir release
-          Copy-Item dist_portable/sanatyar360.exe release/Sanatyar360.exe
-          Copy-Item portable/README-portable-fa.md release/README-portable-fa.md
-          Compress-Archive -Path release/* -DestinationPath Sanatyar360-portable-windows.zip
+          Copy-Item portable/README-portable-fa.md dist_portable/Sanatyar360/
+          Compress-Archive -Path dist_portable/Sanatyar360 -DestinationPath Sanatyar360-portable-windows.zip
 
       - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          mkdir release
-          cp dist_portable/sanatyar360 release/Sanatyar360
-          cp portable/README-portable-fa.md release/README-portable-fa.md
-          chmod +x release/Sanatyar360
-          tar czf Sanatyar360-portable-linux.tar.gz -C release .
+          cp portable/README-portable-fa.md dist_portable/Sanatyar360/
+          chmod +x dist_portable/Sanatyar360/Sanatyar360
+          tar czf Sanatyar360-portable-linux.tar.gz -C dist_portable Sanatyar360
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -98,11 +132,16 @@ jobs:
 
             ## نصب و اجرا
 
-            1. بسته را دانلود و استخراج کنید.
-            2. فایل `Sanatyar360.exe` (ویندوز) یا `./Sanatyar360` (لینوکس) را اجرا کنید.
-            3. مرورگر به‌صورت خودکار روی `http://localhost:8092` باز می‌شود.
+            1. بسته را دانلود و **استخراج** کنید (داخل پوشه `Sanatyar360`).
+            2. فایل `Sanatyar360.exe` را **دوبار کلیک** کنید.
+            3. پس از چند ثانیه (بار اول کمی بیشتر، تا داده نمونه ساخته شود)
+               مرورگر به‌صورت خودکار روی `http://localhost:8092` باز می‌شود.
+
+            ⚠️ اگر ویندوز پیام آبی SmartScreen نشان داد: «More info» ← «Run anyway».
+            ⚠️ فایل `Sanatyar360.exe` و پوشه `_internal` باید کنار هم بمانند.
 
             پایگاه داده SQLite به‌صورت خودکار کنار برنامه ساخته و با داده نمونه پر می‌شود.
+            در صورت بروز هر مشکل، فایل `sanatyar360.log` کنار برنامه ثبت رویدادها است.
             راهنمای کامل: `README-portable-fa.md` داخل هر بسته.
 
             ## ورود

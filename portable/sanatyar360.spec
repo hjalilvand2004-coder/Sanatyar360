@@ -1,6 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec — نسخه پرتیبل صنعت‌یار۳۶۰
+# PyInstaller spec — نسخه پرتیبل صنعت‌یار۳۶۰ (onedir)
 # ساخت: pyinstaller portable/sanatyar360.spec
+# خروجی: dist/Sanatyar360/Sanatyar360(.exe) + پوشه _internal
+# onedir به‌جای onefile: سرعت شروع بالاتر و احتمال حذف توسط آنتی‌ویروس بسیار کمتر
 import os
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
@@ -18,7 +20,7 @@ hiddenimports = [
     "app.routers.auth", "app.routers.sso", "app.routers.orgs", "app.routers.problems",
     "app.routers.applications", "app.routers.matching", "app.routers.collaborations",
     "app.routers.analytics", "app.routers.commercialization", "app.routers.misc",
-    "app.services.matching",
+    "app.services", "app.services.matching",
     "seed", "anyio._backends._asyncio", "multipart",
 ]
 
@@ -44,10 +46,16 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    name="sanatyar360",
+    [],
+    exclude_binaries=True,
+    name="Sanatyar360",
     console=True,
     upx=False,
-    runtime_tmpdir=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    name="Sanatyar360",
 )
