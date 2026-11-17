@@ -1,0 +1,77 @@
+name: Build Portable (Windows/Linux)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm install --no-audit --no-fund
+          npx vite build
+
+      - name: Install backend + PyInstaller
+        working-directory: backend
+        run: pip install -r ../portable/requirements-portable.txt
+
+      - name: Build portable executable
+        run: pyinstaller portable/sanatyar360.spec --distpath dist_portable --workpath build_pyinstaller
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          mkdir release
+          Copy-Item dist_portable/sanatyar360.exe release/Sanatyar360.exe
+          Copy-Item portable/README-portable-fa.md release/README-portable-fa.md
+          Compress-Archive -Path release/* -DestinationPath Sanatyar360-portable-windows.zip
+
+      - name: Package (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir release
+          cp dist_portable/sanatyar360 release/Sanatyar360
+          cp portable/README-portable-fa.md release/README-portable-fa.md
+          chmod +x release/Sanatyar360
+          tar czf Sanatyar360-portable-linux.tar.gz -C release .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sanatyar360-portable-${{ matrix.os }}
+          path: |
+            Sanatyar360-portable-windows.zip
+            Sanatyar360-portable-linux.tar.gz
+          if-no-files-found: ignore
+
+      - name: Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Sanatyar360-portable-windows.zip
+            Sanatyar360-portable-linux.tar.gz

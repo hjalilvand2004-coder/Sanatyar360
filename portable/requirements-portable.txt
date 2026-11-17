@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+PyJWT
+argon2-cffi
+python-multipart
+pydantic
+pydantic-settings
+pyinstaller

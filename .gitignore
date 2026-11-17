@@ -1,0 +1,12 @@
+pgdata/
+logs/
+uploads/
+node_modules/
+*.pyc
+__pycache__/
+.env
+portable_dist/
+portable_build/
+*.db
+*.db-journal
+portable_run_test/

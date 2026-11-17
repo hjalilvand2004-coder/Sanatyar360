@@ -1,0 +1,52 @@
+version: "3.9"
+
+# استقرار کامل سامانه تعامل دانشگاه و صنعت روی یک سرور
+# اجرا: docker compose up -d --build
+# سرویس وب روی http://<IP-سرور>:8092 منتشر می‌شود
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: uiis
+      POSTGRES_USER: uiis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uiis -d uiis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://uiis:${POSTGRES_PASSWORD:-changeme_strong_password}@db:5432/uiis
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-secret}
+      UPLOADS_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    expose:
+      - "8000"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    depends_on:
+      - api
+    ports:
+      - "8092:8092"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
