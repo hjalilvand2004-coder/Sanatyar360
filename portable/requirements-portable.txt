@@ -6,4 +6,5 @@ argon2-cffi
 python-multipart
 pydantic
 pydantic-settings
+email-validator
 pyinstaller
