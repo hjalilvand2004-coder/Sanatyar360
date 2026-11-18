@@ -209,6 +209,31 @@ check("پروفایل کاربر و نقش‌ها", me2.get("user", {}).get("ema
 r = req("/problems", token="", expect=401)
 check("دسترسی بدون توکن ممنوع", True)
 
+# ---------- AC-16: یکپارچگی با مهارت‌یار۳۶۰ (اکوسیستم دانشجویار۳۶۰) ----------
+st = req("/maharat/status", token=st2)
+check("AC-16a: وضعیت ارتباط مهارت‌یار", st.get("enabled") is True and st.get("mode") in ("live", "offline"),
+      f"mode={st.get('mode')} linked={st.get('linked_users')}")
+mp = req("/maharat/me", token=st2)
+check("AC-16b: پروفایل پیوند خورده st2", mp.get("linked") is True and mp.get("skills_total", 0) > 0,
+      f"skills={mp.get('skills_total')} evidences={mp.get('verified_evidences')} source={mp.get('source')}")
+sk = req("/maharat/skills", token=st2)
+check("AC-16c: واژه‌نامه مهارت مشترک", sk.get("mode") in ("live", "offline"),
+      f"mode={sk.get('mode')} count={len(sk.get('items', []))}")
+pub = req("/problems?page=1&page_size=10", token=st1)
+pub_id = next((x["id"] for x in pub.get("items", []) if x.get("status") == "published"), None)
+if pub_id:
+    gap = req(f"/maharat/skill-gap/{pub_id}", token=st2)
+    ok16d = gap.get("linked") is True and "items" in gap and gap.get("coverage") is not None
+    check("AC-16d: پنل شکاف مهارتی نسبت به مسئله", ok16d, f"coverage={gap.get('coverage')}")
+    gap2 = req(f"/maharat/skill-gap/{pub_id}", token=st1, expect=200)
+    check("AC-16e: دانشجو بدون پیوند — راهنمای پیوند", gap2.get("linked") is False)
+lk404 = req("/maharat/link", "POST", {}, token=st1, expect=404)
+check("AC-16f: ایمیل بدون حساب مهارت‌یار → پیام روشن", lk404.get("code") == "profile_not_found")
+rl = req("/maharat/link/refresh", "POST", {}, token=st2, expect=200)
+check("AC-16g: به‌روزرسانی snapshot", rl.get("linked") is True)
+an = req("/maharat/careers", token=cio)
+check("AC-16h: شغل‌های مرجع مهارت‌یار", "items" in an)
+
 print("\n========== جمع‌بندی ==========")
 fails = [r for r in results if r[4] == "❌"]
 print(f"کل بررسی‌ها: {len(results)} | موفق: {len(results) - len(fails)} | ناموفق: {len(fails)}")

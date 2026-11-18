@@ -6,12 +6,22 @@
 from sqlalchemy.orm import Session
 
 from ..models import (
-    IndustrialProblem, MatchResult, MatchRun, MatchRunStatus, MemberRole,
+    IndustrialProblem, MaharatLink, MatchResult, MatchRun, MatchRunStatus, MemberRole,
     MembershipStatus, OrganizationMembership, User, UserSkillSnapshot, utcnow, WorkMode,
 )
+from .maharat import matching_boost as maharat_boost
 
 ALGORITHM_VERSION = "rules-v1.0"
 WEIGHTS = {"skill_fit": 0.45, "evidence": 0.25, "profile_fit": 0.15, "conditions_fit": 0.15}
+
+
+def _maharat_boost(db: Session, problem, user_id: str) -> dict:
+    """عامل مهارت‌یار۳۶۰ — فقط برای کاربرانِ دارای پیوند معتبر؛ در قطعی، بی‌اثر."""
+    try:
+        link = db.query(MaharatLink).filter_by(user_id=user_id).first()
+        return maharat_boost(problem, link)
+    except Exception:
+        return {}
 
 
 def _skill_map(db: Session, user_id: str) -> dict[str, dict]:
@@ -37,13 +47,23 @@ def score_candidate(db: Session, problem: IndustrialProblem, user: User) -> dict
 
     required = {rs.skill_id: rs for rs in problem.required_skills if rs.is_required}
     smap = _skill_map(db, user.id)
+
+    # مهارت‌های تأییدشده مهارت‌یار۳۶۰ هم در پوشش الزامی‌ها شمرده می‌شوند
+    boost = _maharat_boost(db, problem, user.id)
+    covered_names = set((boost or {}).get("covered_skills", {}))
+    maharat_only = [rs for rs in required.values()
+                    if rs.skill.name in covered_names and rs.skill_id not in smap]
     overlap = [s for s in required if s in smap]
-    if required and len(overlap) < max(1, len(required) // 2):
+    overlap_ids = set(overlap) | {rs.skill_id for rs in maharat_only}
+    if required and len(overlap_ids) < max(1, len(required) // 2):
         return None  # حداقل نیمی از مهارت‌های الزامی
 
     # مرحله دوم — رتبه‌بندی ترکیبی
-    skill_fit = (len(overlap) / len(required)) if required else 0.5
-    reasons.append(f"تطبیق مهارت: {len(overlap)} از {len(required)} مهارت الزامی "
+    skill_fit = (len(overlap_ids) / len(required)) if required else 0.5
+    if maharat_only:
+        reasons.append(f"پوشش با پروفایل تأییدشده مهارت‌یار۳۶۰: "
+                       f"{', '.join(rs.skill.name for rs in maharat_only)}")
+    reasons.append(f"تطبیق مهارت: {len(overlap_ids)} از {len(required)} مهارت الزامی "
                    f"({', '.join(smap[s]['skill_name'] for s in overlap) or '—'})")
     for s in required:
         if s not in smap:
@@ -55,6 +75,10 @@ def score_candidate(db: Session, problem: IndustrialProblem, user: User) -> dict
     evidence = sum(smap[s]["level"] for s in overlap) / (5 * max(1, len(overlap)))
     if verified:
         reasons.append(f"شواهد اعتبارسنجی‌شده: {len(verified)} مهارت با سطح ≥{min(v['level'] for v in verified)}")
+    if boost:
+        # ترکیب شواهد محلی و مهارت‌یار (سطح ۰..۱۰۰ مهارت‌یار → ۰..۱)
+        evidence = 0.7 * evidence + 0.3 * boost["avg_level"]
+        reasons.extend(boost["reasons"][:3])
 
     profile_fit = 0.0
     if user.user_type == "professor":
@@ -116,14 +140,19 @@ def recommend_problems_for_user(db: Session, user: User, limit: int = 10) -> lis
         reqs = p.required_skills
         if not reqs:
             continue
-        overlap = [rs for rs in reqs if rs.skill_id in smap]
+        boost = _maharat_boost(db, p, user.id)
+        covered = set((boost or {}).get("covered_skills", {}))
+        overlap = [rs for rs in reqs if rs.skill_id in smap or rs.skill.name in covered]
         if not overlap:
             continue
         skill_fit = len(overlap) / len(reqs)
         reasons = [f"مهارت «{rs.skill.name}» در پروفایل شما ثبت شده است" for rs in overlap[:3]]
-        missing = [rs.skill.name for rs in reqs if rs.skill_id not in smap]
+        if boost:
+            reasons = boost["reasons"][:2] + reasons[:2]
+        missing = [rs.skill.name for rs in reqs if rs.skill_id not in smap and rs.skill.name not in covered]
         score = 0.6 * skill_fit + (0.2 if user.user_type == "professor" else 0.1) + 0.2 * (
-            sum(min(smap[rs.skill_id]["level"], 5) for rs in overlap) / (5 * len(overlap)))
+            sum(min(smap[rs.skill_id]["level"], 5) for rs in overlap if rs.skill_id in smap)
+            / (5 * len(overlap))) + 0.1 * (boost or {}).get("avg_level", 0.0)
         scored.append({"problem": problem_brief(p), "score": round(min(score, 1.0), 4),
                        "reasons": reasons, "missing": missing})
     scored.sort(key=lambda x: x["score"], reverse=True)

@@ -7,13 +7,13 @@ from app.db import Base, SessionLocal, engine
 from app.models import (
     Application, ApplicationMember, CollaborationEvaluation, CollaborationProject,
     AgreementReference, CommercializationCase, Consent, Deliverable,
-    DeliverableStatus, IndustrialProblem, IntegrationRun, MarketDataSource,
-    MarketObservation, MatchResult, MatchRun, MemberRole, MembershipStatus,
-    Notification, Organization, OrganizationMembership, OrganizationVerification,
-    ProblemRequiredSkill, ProblemReview, ProblemStatus, ProblemVersion,
-    ProjectMember, ProjectMilestone, ProjectStatus, ReviewDecision, Skill,
-    TeamMemberStatus, User, UserSkillSnapshot, utcnow, WorkMode,
-    Confidentiality, CommCaseStatus,
+    DeliverableStatus, IndustrialProblem, IntegrationRun, MaharatLink,
+    MarketDataSource, MarketObservation, MatchResult, MatchRun, MemberRole,
+    MembershipStatus, Notification, Organization, OrganizationMembership,
+    OrganizationVerification, ProblemRequiredSkill, ProblemReview, ProblemStatus,
+    ProblemVersion, ProjectMember, ProjectMilestone, ProjectStatus,
+    ReviewDecision, Skill, TeamMemberStatus, User, UserSkillSnapshot, utcnow,
+    WorkMode, Confidentiality, CommCaseStatus,
 )
 
 PASSWORD = "uiis1234"
@@ -315,6 +315,35 @@ def main(reset: bool = False):
         market_signal="رشد ~۴۰٪ آگهی‌های مرتبط با IoT در شش ماه گذشته (منبع: آگهی‌های اشتغال مجاز)",
         created_by=cio.id, status=CommCaseStatus.suggested)
     db.add(case)
+
+    # ---------- یکپارچگی با مهارت‌یار۳۶۰ (پیوند پروفایل دانشجو) ----------
+    # اگر دسترسی به مهارت‌یار برقرار بود snapshot واقعی واکشی می‌شود؛ در غیر این
+    # صورت snapshot نمونه با برچسب «نمونه» ذخیره می‌شود تا سامانه آفلاین هم کامل باشد.
+    from app.services import maharat as _maharat
+    try:
+        prof = _maharat.MaharatClient().profile_by_email("sara.ary@demo.local")
+        if not prof:
+            raise _maharat.MaharatUnavailable("profile not found")
+        try:
+            careers = _maharat.MaharatClient().career_matches(prof["id"])
+        except _maharat.MaharatUnavailable:
+            careers = []
+        _maharat.save_link(db, st2.id, prof, careers, source="seed_sample")
+        print("  maharat: live profile linked to st2")
+    except Exception:
+        prof, careers = _maharat.sample_snapshot()
+        levels = _maharat.build_levels(prof)
+        db.add(MaharatLink(user_id=st2.id, maharat_profile_id=None,
+                           maharat_full_name=prof["full_name"], major=prof["major"],
+                           degree_level=prof["degree_level"], university_name=prof["university_name"],
+                           engine_mode=prof["engine_mode"], levels_json=levels,
+                           careers_json=careers, skills_total=len(levels),
+                           verified_evidences=sum(x["evidence_count"] for x in levels),
+                           source="seed_sample", is_sample=True))
+        db.add(IntegrationRun(system_name="maharatyar360", direction="import", status="ok",
+                              records=len(levels), note="داده نمونه اکوسیستم (آفلاین)",
+                              ran_at=now))
+        print("  maharat: offline sample snapshot linked to st2")
 
     # ---------- اعلان‌ها ----------
     db.add_all([

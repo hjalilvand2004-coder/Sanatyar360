@@ -648,3 +648,31 @@ class IntegrationRun(Base):
     records: Mapped[int] = mapped_column(Integer, default=0)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     ran_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MaharatLink(Base):
+    """پیوند پروفایل مهارتی کاربر با زیرسیستم مهارتیار۳۶۰ (اکوسیستم دانشجویار۳۶۰).
+
+    فقط سطوح مهارتی تأییدشده و خلاصه شواهد ذخیره می‌شود؛ هیچ اعتبارنامه‌ای از
+    مهارتیار نگهداری نمی‌شود. رضایت کاربر با ثبت خودِ پیوند اعمال می‌گردد.
+    """
+    __tablename__ = "maharat_links"
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id"), unique=True, index=True)
+    maharat_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    maharat_profile_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    maharat_full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    major: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    degree_level: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    university_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    engine_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    levels_json: Mapped[list | None] = mapped_column(JSON, nullable=True)   # [{skill_code, skill_name_fa, name_en, aliases, category, level, evidence_count, top_evidence}]
+    careers_json: Mapped[list | None] = mapped_column(JSON, nullable=True)  # [{career_id, career_title, match_score, core_missing_count}]
+    skills_total: Mapped[int] = mapped_column(Integer, default=0)
+    verified_evidences: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(30), default="service_admin")  # service_admin/self_token/seed_sample
+    is_sample: Mapped[bool] = mapped_column(Boolean, default=False)  # داده نمونه در نبود دسترسی
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship()

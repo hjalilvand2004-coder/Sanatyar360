@@ -79,6 +79,7 @@ const NAV = [
   { group: "دانشجو و استاد", items: [
     { route: "/recommendations", label: "پیشنهادهای سامانه", icon: "✦", roles: ["student", "professor"] },
     { route: "/applications", label: "درخواست‌های من", icon: "✉", roles: ["student", "professor"] },
+    { route: "/maharat", label: "مهارت‌یار۳۶۰", icon: "🧩", roles: ["student", "professor"] },
   ]},
   { group: "صنعت", items: [
     { route: "/my-problems", label: "مسائل سازمان من", icon: "▤", roles: ["industry_rep", "industry_manager"] },
@@ -218,6 +219,7 @@ import ReviewQueue from "./pages/ReviewQueue";
 import Organizations from "./pages/Organizations";
 import Commercialization from "./pages/Commercialization";
 import Analytics from "./pages/Analytics";
+import Maharat from "./pages/Maharat";
 import { Notifications, Privacy, Audit } from "./pages/Misc";
 import { SsoDemo, SsoCallback } from "./pages/SSO";
 
@@ -227,6 +229,7 @@ const PAGES: Record<string, any> = {
   "/applications": Applications, "/collaborations": Collaborations,
   "/review": ReviewQueue, "/organizations": Organizations,
   "/commercialization": Commercialization, "/analytics": Analytics,
+  "/maharat": Maharat,
   "/notifications": Notifications, "/privacy": Privacy, "/audit": Audit,
   "/problem": ProblemDetail, "/application": AppDetail, "/collaboration": CollabDetail,
 };

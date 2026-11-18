@@ -85,6 +85,15 @@ class Settings(BaseSettings):
         '"comm": "comm_expert", "viewer": "student"}',
     )
 
+    # ---------- زیرسیستم مهارتیار۳۶۰ (پروفایل مهارتی تأییدشده دانشجو) ----------
+    # ارتباط تنگاتنگ در اکوسیستم دانشجویار۳۶۰: واژه‌نامه مهارت، پروفایل تأییدشده،
+    # شکاف مهارتی و تقویت موتور تطبیق با شواهد معتبر مهارتیار.
+    maharat_api_url: str = os.environ.get("MAHARAT_API_URL", "http://188.212.96.235:8090/api/v1")
+    maharat_enabled: bool = os.environ.get("MAHARAT_ENABLED", "1") == "1"
+    maharat_service_email: str = os.environ.get("MAHARAT_SERVICE_EMAIL", "admin@demo.local")
+    maharat_service_password: str = os.environ.get("MAHARAT_SERVICE_PASSWORD", "Maharat#360")
+    maharat_timeout: int = int(os.environ.get("MAHARAT_TIMEOUT", "6"))
+
 
 settings = Settings()
 

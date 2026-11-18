@@ -11,7 +11,7 @@ from .core.config import settings
 from .db import Base, engine
 from .routers import (
     analytics, applications, auth, collaborations, commercialization,
-    matching, misc, orgs, problems, sso,
+    maharat, matching, misc, orgs, problems, sso,
 )
 
 app = FastAPI(
@@ -32,7 +32,7 @@ app.add_middleware(
 
 API = settings.api_prefix
 for r in (auth, sso, orgs, problems, applications, matching, collaborations,
-          analytics, commercialization, misc):
+          analytics, commercialization, maharat, misc):
     app.include_router(r.router, prefix=API)
 
 

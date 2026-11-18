@@ -16,6 +16,7 @@ export default function ProblemDetail({ route }: any) {
   const [runs, setRuns] = useState<any[]>([]);
   const [results, setResults] = useState<any[]>([]);
   const [activeRun, setActiveRun] = useState<string>("");
+  const [gap, setGap] = useState<any>(null);
   const [modal, setModal] = useState<"" | "apply" | "review" | "answer" | "question">("");
   const [editingQ, setEditingQ] = useState<string>("");
 
@@ -29,6 +30,9 @@ export default function ProblemDetail({ route }: any) {
     api("/problems/" + id + "/reviews").then((d) => setReviews(d.items)).catch(() => {});
     if (isCio || isIndustry) {
       api("/problems/" + id + "/applications").then((d) => setApps(d.items)).catch(() => {});
+    }
+    if (isAcademic) {
+      api("/maharat/skill-gap/" + id).then(setGap).catch(() => setGap(null));
     }
   };
   useEffect(load, [id]);
@@ -124,6 +128,40 @@ export default function ProblemDetail({ route }: any) {
           {isAcademic && p.my_application && <button className="btn" onClick={() => nav("/applications")}>مشاهده درخواست من</button>}
         </div>
       </Card>
+
+      {isAcademic && gap && (
+        <Card title="تحلیل شکاف مهارتی با مهارت‌یار۳۶۰">
+          {gap.linked === false ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <p style={{ opacity: 0.8, margin: 0 }}>سطح تأییدشده مهارت‌های شما (از مدارک و پروژه‌های مهارت‌یار۳۶۰) برای این مسئله موجود نیست.</p>
+              <button className="btn" onClick={() => nav("/maharat")}>پیوند پروفایل مهارت‌یار</button>
+            </div>
+          ) : (
+            <>
+              <div className="chips" style={{ marginBottom: 8 }}>
+                <span className="chip">پوشش مهارت‌های الزامی: {fa(Math.round((gap.coverage || 0) * 100))}٪</span>
+                {gap.is_sample && <span className="chip">داده نمونه اکوسیستم</span>}
+              </div>
+              <div className="tbl-wrap"><table className="tbl">
+                <thead><tr><th>مهارت مسئله</th><th>معادل در مهارت‌یار</th><th>سطح شما</th><th>حداقل لازم</th><th>شواهد</th><th>وضعیت</th></tr></thead>
+                <tbody>
+                  {gap.items.map((x: any, i: number) => (
+                    <tr key={i}>
+                      <td>{x.skill}</td>
+                      <td>{x.maharat_skill || "—"}</td>
+                      <td>{x.maharat_level != null ? fa(Math.round(x.maharat_level)) + "/۱۰۰" : "—"}</td>
+                      <td>{fa(x.required_level)}</td>
+                      <td title={x.top_evidence || ""}>{x.evidence_count ? fa(x.evidence_count) + " مدرک" : "—"}</td>
+                      <td>{x.verdict}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+              <p style={{ fontSize: 12, opacity: 0.6, marginTop: 6 }}>{gap.note}</p>
+            </>
+          )}
+        </Card>
+      )}
 
       <div className="tabbar">
         {[["info", "شرح مسئله"], ["qa", "پرسش و پاسخ"], ["reviews", "بررسی‌ها"],

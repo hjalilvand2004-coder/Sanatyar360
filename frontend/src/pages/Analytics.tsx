@@ -8,6 +8,7 @@ export default function Analytics() {
   const [demand, setDemand] = useState<any>(null);
   const [network, setNetwork] = useState<any>(null);
   const [quality, setQuality] = useState<any>(null);
+  const [maharat, setMaharat] = useState<any>(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -16,6 +17,7 @@ export default function Analytics() {
       api("/analytics/skill-demand?months=6").then(setDemand).catch(() => {}),
       api("/analytics/collaboration-network").then(setNetwork).catch(() => {}),
       api("/analytics/quality").then(setQuality).catch(() => {}),
+      api("/maharat/status").then(setMaharat).catch(() => {}),
     ]);
   }, []);
 
@@ -38,6 +40,20 @@ export default function Analytics() {
             <div className="kpi"><div className="val">{fa(summary.applications?.total)}</div><div className="lbl">درخواست همکاری</div></div>
             <div className="kpi"><div className="val">{fa(summary.commercialization_cases)}</div><div className="lbl">فرصت تجاری‌سازی ثبت‌شده</div></div>
           </div>
+        </Card>
+      )}
+      {maharat && (
+        <Card title="یکپارچگی با مهارت‌یار۳۶۰ (اکوسیستم دانشجویار۳۶۰)">
+          <div className="grid cols-4">
+            <div className="kpi"><div className="val">{maharat.mode === "live" ? "زنده" : maharat.mode === "disabled" ? "غیرفعال" : "آفلاین"}</div><div className="lbl">وضعیت ارتباط</div></div>
+            <div className="kpi"><div className="val">{fa(maharat.linked_users)}</div><div className="lbl">کاربر با پروفایل مهارتی پیوند خورده</div></div>
+            <div className="kpi"><div className="val">{maharat.skills_count ? fa(maharat.skills_count) : "—"}</div><div className="lbl">مهارت در واژه‌نامه مشترک</div></div>
+            <div className="kpi"><div className="val">{maharat.careers_count ? fa(maharat.careers_count) : "—"}</div><div className="lbl">شغل مرجع برای تطبیق شغلی</div></div>
+          </div>
+          <p style={{ fontSize: 12, opacity: 0.65, marginTop: 8 }}>
+            سطوح مهارتی تأییدشده از مهارت‌یار۳۶۰ در موتور تطبیق صنعت‌یار به‌عنوان شواهد معتبر لحاظ می‌شود
+            و پنل «شکاف مهارتی» هر مسئله بر مبنای همان واژه‌نامه مشترک ساخته می‌شود.
+          </p>
         </Card>
       )}
       {demand && (
