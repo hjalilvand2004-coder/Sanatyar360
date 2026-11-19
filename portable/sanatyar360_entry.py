@@ -3,7 +3,7 @@
 اجرا: Sanatyar360.exe (ویندوز) یا ./Sanatyar360 (لینوکس)
 - پایگاه داده: فایل SQLite کنار برنامه (sanatyar360.db)
 - رابط وب: پس از آماده‌شدن سرور، مرورگر خودکار باز می‌شود (با --no-browser خاموش کنید)
-- گزینه‌ها: --port 8092 --host 127.0.0.1 --no-browser --reset-db
+- گزینه‌ها: --port 8092 --host 0.0.0.0 --no-browser --reset-db --public-url http://188.212.96.235:8092
 - ثبت رویدادها: فایل sanatyar360.log کنار برنامه — در بروز خطا حتماً این فایل را ببینید
 """
 import os
@@ -56,9 +56,24 @@ def log(msg: str):
         pass
 
 
+def detect_lan_ip() -> str:
+    """IP واقعی کارت شبکه برای نمایش آدرس دسترسی (بدون ارسال بسته — UDP connect)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except OSError:
+        return "127.0.0.1"
+
+
 def parse_args(argv: list[str]):
-    host, port, open_browser = "127.0.0.1", 8092, True
+    # پیش‌فرض: گوش دادن روی همه کارت‌های شبکه — برای استقرار روی سرور
+    # (مثل http://188.212.96.235:8092) بدون هیچ پیکربندی اضافه
+    host, port, open_browser = "0.0.0.0", 8092, True
     reset_db = False
+    public_url = ""
     for i, a in enumerate(argv):
         if a == "--port" and i + 1 < len(argv):
             try:
@@ -71,7 +86,10 @@ def parse_args(argv: list[str]):
             open_browser = False
         elif a == "--reset-db":
             reset_db = True
-    return host, port, open_browser, reset_db
+        elif a == "--public-url" and i + 1 < len(argv):
+            # آدرس عمومی برای ساخت redirect_uri ورود یکپارچه (پشت پروکسی/فایروال)
+            public_url = argv[i + 1].rstrip("/")
+    return host, port, open_browser, reset_db, public_url
 
 
 def find_free_port(start: int, tries: int = 8) -> int:
@@ -126,7 +144,7 @@ def open_browser_when_ready(url: str):
         log(f"سرور پس از 90 ثانیه پاسخ نداد — مرورگر باز نشد؛ لاگ را بررسی کنید: {url}")
 
 
-def run(host: str, port: int, open_browser: bool, reset_db: bool):
+def run(host: str, port: int, open_browser: bool, reset_db: bool, public_url: str = ""):
     log(f"صنعت‌یار۳۶۰ — نسخه پرتیبل | دایرکتوری: {BASE_DIR}")
 
     if reset_db and os.path.exists(DB_PATH):
@@ -137,6 +155,9 @@ def run(host: str, port: int, open_browser: bool, reset_db: bool):
     os.environ.setdefault("UIIS_PORTABLE", "1")
     os.environ.setdefault(
         "DATABASE_URL", "sqlite:///" + DB_PATH.replace("\\", "/"))
+    if public_url:
+        os.environ["SSO_PUBLIC_BASE_URL"] = public_url
+        log(f"آدرس عمومی ورود یکپارچه: {public_url}")
 
     # 1) مدل‌ها ابتدا import شوند تا metadata کامل باشد، بعد create_all
     log("۱/۴ بارگذاری ماژول‌ها…")
@@ -161,19 +182,26 @@ def run(host: str, port: int, open_browser: bool, reset_db: bool):
     # 4) اجرای سرور با آبجکت اپ (بدون import رشته‌ای — سازگار با فریز ویندوز)
     from app.main import app
     import uvicorn
-    url = f"http://{'localhost' if host == '127.0.0.1' else host}:{port}"
-    log(f"۴/۴ شروع وب‌سرور روی {url} — برای خروج پنجره را ببندید یا Ctrl+C بزنید")
+    if host == "0.0.0.0":
+        lan_ip = detect_lan_ip()
+        log(f"۴/۴ شروع وب‌سرور روی همه کارت‌های شبکه (0.0.0.0:{port})")
+        log(f"    دسترسی شبکه:  http://{lan_ip}:{port}")
+        log(f"    دسترسی محلی:  http://127.0.0.1:{port}")
+        browser_url = f"http://127.0.0.1:{port}"
+    else:
+        browser_url = f"http://{host}:{port}"
+        log(f"۴/۴ شروع وب‌سرور روی {browser_url} — برای خروج پنجره را ببندید یا Ctrl+C بزنید")
     if open_browser:
         import threading
-        threading.Thread(target=open_browser_when_ready, args=(url,), daemon=True).start()
+        threading.Thread(target=open_browser_when_ready, args=(browser_url,), daemon=True).start()
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 def main():
-    host, port, open_browser, reset_db = parse_args(sys.argv[1:])
+    host, port, open_browser, reset_db, public_url = parse_args(sys.argv[1:])
     port = find_free_port(port)
     try:
-        run(host, port, open_browser, reset_db)
+        run(host, port, open_browser, reset_db, public_url)
     except KeyboardInterrupt:
         log("برنامه توسط کاربر متوقف شد.")
     except SystemExit:

@@ -1,0 +1,23 @@
+# Unit فایل استقرار صنعت‌یار۳۶۰ روی سرور 188.212.96.235 (لینوکس)
+# نصب:
+#   sudo cp sanatyar360.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now sanatyar360
+# مسیر فرض بسته: /opt/Sanatyar360/Sanatyar360  (از tar.gz ریلیز استخراج کنید)
+[Unit]
+Description=Sanatyar360 — صنعت‌یار۳۶۰ (زیرسیستم دانشجویار۳۶۰)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/Sanatyar360
+ExecStart=/opt/Sanatyar360/Sanatyar360 --host 0.0.0.0 --port 8092 --no-browser
+Environment=UIIS_PORTABLE=1
+# در صورت PostgreSQL سروری، به‌جای SQLite فعال کنید:
+# Environment=DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:5432/uiis
+# Environment=MAHARAT_API_URL=http://188.212.96.235:8090/api/v1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
