@@ -31,6 +31,39 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+# ---------- قابلیت ابطال نشست (فاز اعتماد — v1.1.0) ----------
+def register_session(db, token: str, user_id: str) -> None:
+    """ثبت نشست در session_records برای امکان ابطال — شکست ثبت غیربحرانی است."""
+    try:
+        claims = decode_token_payload(token) or {}
+        if not claims.get("jti"):
+            return
+        from ..models import SessionRecord, utcnow
+        exp = claims.get("exp")
+        expires = datetime.fromtimestamp(exp, tz=timezone.utc) if exp else utcnow()
+        db.add(SessionRecord(jti=claims["jti"], user_id=str(user_id), expires_at=expires))
+        db.flush()
+    except Exception:
+        db.rollback()
+
+
+def revoke_session(db, jti: str) -> bool:
+    from ..models import SessionRecord
+    row = db.get(SessionRecord, jti)
+    if not row:
+        return False
+    row.revoked = True
+    return True
+
+
+def is_session_revoked(db, jti: str | None) -> bool:
+    if not jti:
+        return False
+    from ..models import SessionRecord
+    row = db.get(SessionRecord, jti)
+    return bool(row and row.revoked)
+
+
 def decode_token(token: str) -> str | None:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])

@@ -9,8 +9,8 @@ from ..models import (
     AgreementReference, AppStatus, Application, ApplicationMember,
     CollaborationEvaluation, CollaborationProject, Deliverable, DeliverableStatus,
     IndustrialProblem, MemberRole, MilestoneStatus, Organization,
-    OrganizationMembership, OrgType, ProblemStatus, ProjectMember,
-    ProjectMilestone, ProjectStatus, User, utcnow,
+    OrganizationMembership, OrgType, ProblemStatus, ProjectChangeRequest,
+    ProjectMember, ProjectMilestone, ProjectPilot, ProjectStatus, User, utcnow,
 )
 from ..serializers import project_brief, user_brief
 from ..services import add_outbox, log_audit, notify
@@ -52,9 +52,32 @@ def _serialize_project(db: Session, p: CollaborationProject, user: User,
                        .filter_by(project_id=p.id).all()],
         "problem_title": (db.get(IndustrialProblem, p.problem_id).title
                           if p.problem_id else None),
+        # ---------- پایلوت و مدیریت تغییرات (v1.1.0) ----------
+        "pilot": _serialize_pilot(db.query(ProjectPilot)
+                                  .filter_by(project_id=p.id)
+                                  .order_by(ProjectPilot.created_at.desc()).first()),
+        "change_requests": [{"id": c.id, "field": c.field, "old_value": c.old_value,
+                             "new_value": c.new_value, "justification": c.justification,
+                             "status": c.status, "decision_note": c.decision_note,
+                             "created_at": c.created_at.isoformat()}
+                            for c in db.query(ProjectChangeRequest)
+                            .filter_by(project_id=p.id)
+                            .order_by(ProjectChangeRequest.created_at.desc()).all()],
     })
     d["my_roles"] = [m.role.value for m in memberships]
     return d
+
+
+def _serialize_pilot(pilot: ProjectPilot | None) -> dict | None:
+    if not pilot:
+        return None
+    return {"id": pilot.id, "title": pilot.title, "scope": pilot.scope,
+            "start_date": pilot.start_date, "end_date": pilot.end_date,
+            "budget_note": pilot.budget_note, "acceptance_test": pilot.acceptance_test,
+            "outcome_metric": pilot.outcome_metric, "outcome_value": pilot.outcome_value,
+            "decision": pilot.decision, "decision_note": pilot.decision_note,
+            "created_at": pilot.created_at.isoformat(),
+            "decided_at": pilot.decided_at.isoformat() if pilot.decided_at else None}
 
 
 class CollaborationIn(BaseModel):
@@ -415,3 +438,147 @@ def update_achievement(proj_id: str, payload: AchievementIn, request: Request,
     log_audit(db, user.id, "achievement_updated", "collaboration_project", p.id, request=request)
     db.commit()
     return {"ok": True}
+
+
+# ---------- پایلوت کوتاه پیش از قرارداد اصلی (v1.1.0) ----------
+
+class PilotIn(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    scope: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    budget_note: str | None = Field(default=None, max_length=200)
+    acceptance_test: str | None = None   # خروجی قابل‌آزمایش
+
+
+def _project_or_403(proj_id: str, db: Session, user: User):
+    p = db.get(CollaborationProject, proj_id)
+    if not p:
+        raise HTTPException(status_code=404, detail={"code": "not_found",
+                                                     "message": "پروژه همکاری یافت نشد"})
+    memberships = get_memberships(db, user)
+    my_ids = {m.organization_id for m in memberships}
+    involved = db.query(ProjectMember).filter_by(project_id=p.id, user_id=user.id).first()
+    if not (p.industry_org_id in my_ids or p.university_org_id in my_ids or
+            is_university_staff(memberships) or involved):
+        raise HTTPException(status_code=403, detail={"code": "forbidden",
+                                                     "message": "دسترسی غیرمجاز به این همکاری"})
+    return p, memberships
+
+
+@router.post("/collaborations/{proj_id}/pilot")
+def create_pilot(proj_id: str, payload: PilotIn, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """تعریف فاز اثبات امکان‌پذیری: مساله محدود، زمان کوتاه، بودجه مستقل، خروجی قابل‌آزمایش."""
+    p, memberships = _project_or_403(proj_id, db, user)
+    existing = db.query(ProjectPilot).filter_by(project_id=p.id).first()
+    if existing:
+        raise HTTPException(status_code=409, detail={
+            "code": "pilot_exists",
+            "message": "پایلوت این پروژه قبلاً تعریف شده است؛ برای اصلاح از تغییرات استفاده کنید"})
+    pilot = ProjectPilot(project_id=p.id, title=payload.title, scope=payload.scope,
+                         start_date=payload.start_date, end_date=payload.end_date,
+                         budget_note=payload.budget_note,
+                         acceptance_test=payload.acceptance_test,
+                         created_by=user.id)
+    db.add(pilot)
+    log_audit(db, user.id, "pilot_created", "collaboration_project", p.id,
+              {"title": payload.title, "window": f"{payload.start_date}~{payload.end_date}"},
+              request)
+    db.commit()
+    return {"ok": True, "pilot": _serialize_pilot(pilot),
+            "note": "پس از اجرا، سنجهٔ نتیجه را ثبت و تصمیم ادامه/اصلاح/توقف را نهایی کنید"}
+
+
+class PilotDecisionIn(BaseModel):
+    decision: str = Field(pattern="^(continue|adjust|stop)$")
+    decision_note: str | None = None
+    outcome_metric: str | None = None    # سنجهٔ نتیجه (مثلاً کاهش ضایعات٪)
+    outcome_value: str | None = None     # مقدار اندازه‌گیری‌شده و تأییدشدهٔ صنعت
+
+
+@router.post("/pilots/{pilot_id}/decision")
+def decide_pilot(pilot_id: str, payload: PilotDecisionIn, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """تصمیم نهایی پایلوت — ریسک صنعت را کنترل می‌کند و تحویل را قابل‌سنجش می‌سازد."""
+    pilot = db.get(ProjectPilot, pilot_id)
+    if not pilot:
+        raise HTTPException(status_code=404, detail={"code": "not_found",
+                                                     "message": "پایلوت یافت نشد"})
+    p, memberships = _project_or_403(pilot.project_id, db, user)
+    my_ids = {m.organization_id for m in memberships}
+    if p.industry_org_id not in my_ids and not ({m.role for m in memberships} & set(CIO_ROLES)):
+        raise HTTPException(status_code=403, detail={
+            "code": "forbidden", "message": "تصمیم پایلوت با سمت صنعتی/دفتر ارتباط است"})
+    if pilot.decision:
+        raise HTTPException(status_code=409, detail={
+            "code": "already_decided", "message": "تصمیم پایلوت قبلاً ثبت شده است"})
+    pilot.decision = payload.decision
+    pilot.decision_note = payload.decision_note
+    pilot.outcome_metric = payload.outcome_metric
+    pilot.outcome_value = payload.outcome_value
+    pilot.decided_by = user.id
+    pilot.decided_at = utcnow()
+    if payload.decision == "stop":
+        p.status_note = (p.status_note or "") + " | پایلوت متوقف شد (تصمیم صنعتی)"
+    log_audit(db, user.id, "pilot_decision", "collaboration_project", p.id,
+              {"decision": payload.decision,
+               "outcome": f"{payload.outcome_metric}={payload.outcome_value}"}, request)
+    db.commit()
+    return {"ok": True, "pilot": _serialize_pilot(pilot),
+            "note": "نتیجهٔ پایلوت در شاخص‌های نتیجه‌محور سامانه لحاظ شد"}
+
+
+# ---------- مدیریت تغییرات دامنه/زمان/هزینه (v1.1.0) ----------
+
+class ChangeIn(BaseModel):
+    field: str = Field(pattern="^(scope|schedule|budget)$")
+    new_value: str = Field(min_length=2, max_length=2000)
+    old_value: str | None = None
+    justification: str | None = None
+
+
+@router.post("/collaborations/{proj_id}/change-requests")
+def create_change_request(proj_id: str, payload: ChangeIn, request: Request,
+                          db: Session = Depends(get_db),
+                          user: User = Depends(get_current_user)):
+    """ثبت تغییر دامنه/زمان/هزینه — در انتظار تأیید طرف مقابل."""
+    p, memberships = _project_or_403(proj_id, db, user)
+    cr = ProjectChangeRequest(project_id=p.id, field=payload.field,
+                              old_value=payload.old_value, new_value=payload.new_value,
+                              justification=payload.justification, requested_by=user.id)
+    db.add(cr)
+    log_audit(db, user.id, "change_request_created", "collaboration_project", p.id,
+              {"field": payload.field}, request)
+    db.commit()
+    return {"ok": True, "id": cr.id, "status": cr.status,
+            "note": "برای اعمال، تأیید طرف مقابل لازم است"}
+
+
+@router.post("/change-requests/{cr_id}/decide")
+def decide_change_request(cr_id: str, payload: dict, request: Request,
+                          db: Session = Depends(get_db),
+                          user: User = Depends(get_current_user)):
+    """تأیید/رد تغییر توسط طرف مقابل — تصمیم انسانی و پرسابقه."""
+    cr = db.get(ProjectChangeRequest, cr_id)
+    if not cr:
+        raise HTTPException(status_code=404, detail={"code": "not_found",
+                                                     "message": "درخواست تغییر یافت نشد"})
+    p, memberships = _project_or_403(cr.project_id, db, user)
+    if payload.get("decision") not in ("approved", "rejected"):
+        raise HTTPException(status_code=422, detail={
+            "code": "validation", "message": "تصمیم باید approved یا rejected باشد"})
+    if cr.requested_by == user.id and not is_university_staff(memberships):
+        raise HTTPException(status_code=403, detail={
+            "code": "forbidden", "message": "تأیید تغییر باید توسط طرف مقابل انجام شود"})
+    cr.status = payload["decision"]
+    cr.decision_note = payload.get("note")
+    cr.decided_by = user.id
+    cr.decided_at = utcnow()
+    if payload["decision"] == "approved" and cr.field == "scope":
+        p.scope = (p.scope or "") + "\n[تغییر تأییدشده] " + (cr.new_value or "")
+    log_audit(db, user.id, "change_request_decided", "collaboration_project", p.id,
+              {"field": cr.field, "decision": cr.status}, request)
+    db.commit()
+    return {"ok": True, "status": cr.status,
+            "note": "اگر تغییر دامنه تأیید شد، در محدودهٔ کار پروژه ثبت گردید"}

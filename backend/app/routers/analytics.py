@@ -200,3 +200,79 @@ def data_quality(db: Session = Depends(get_db), user: User = Depends(get_current
         "market_data_freshness": latest_source.isoformat() if latest_source else None,
         "note": "شاخص‌های کیفیت داده برای نمایش در داشبورد مدیر",
     }
+
+
+@router.get("/outcomes")
+def outcome_kpis(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """شاخص‌های نتیجه‌محور (v1.1.0) — به‌جای شمارش ورودی، ارزش خروجی را می‌سنجند.
+
+    محوری‌ترین شاخص: «مسائل حل‌شده با نتیجهٔ قابل‌اندازه‌گیری و تأییدشده».
+    """
+    _require_analyst(get_memberships(db, user))
+
+    # زمان رسیدن از ثبت مسئله به تیم/همکاری مناسب (میانه بر حسب روز)
+    durations = []
+    for proj in db.query(CollaborationProject).filter(
+            CollaborationProject.problem_id.isnot(None)).all():
+        pr = db.get(IndustrialProblem, proj.problem_id)
+        if pr and pr.created_at and proj.created_at:
+            d = (proj.created_at - pr.created_at).total_seconds() / 86400
+            if 0 <= d < 365:
+                durations.append(round(d, 1))
+    durations.sort()
+    med = durations[len(durations) // 2] if durations else None
+
+    total_problems = db.query(IndustrialProblem).count()
+    piloted = db.query(ProjectPilot).count() if "ProjectPilot" in globals() else None
+
+    # نرخ تبدیل: مسئله → همکاری → قرارداد (توافق ثبت‌شده یا وضعیت فعال/تکمیل)
+    with_collab = db.query(CollaborationProject).filter(
+        CollaborationProject.problem_id.isnot(None)).distinct(
+        CollaborationProject.problem_id).count()
+    contracted = db.query(CollaborationProject).filter(
+        CollaborationProject.agreement_ref.isnot(None)).count()
+
+    # تحویل به‌موقع: مایلستون‌های انجام‌شده در روز موعد یا قبل از آن
+    from ..models import MilestoneStatus, ProjectMilestone
+    done = [m for m in db.query(ProjectMilestone).filter(
+        ProjectMilestone.status.in_([MilestoneStatus.done, MilestoneStatus.late]),
+        ProjectMilestone.due_date.isnot(None)).all()]
+    on_time, total_done = 0, 0
+    for m in done:
+        try:
+            total_done += 1
+            if str(m.due_date)[:10] >= (m.completed_at.isoformat()[:10]
+                                        if m.completed_at else "9999-12-31"):
+                on_time += 1
+        except Exception:
+            pass
+
+    # همکاری مجدد شرکت‌ها
+    org_counts = (db.query(CollaborationProject.industry_org_id,
+                           func.count(CollaborationProject.id).label("c"))
+                  .group_by(CollaborationProject.industry_org_id).all())
+    orgs_with_any = len(org_counts)
+    orgs_repeat = sum(1 for _, c in org_counts if c >= 2)
+
+    # مسائل حل‌شده با نتیجهٔ قابل‌اندازه‌گیری و تأییدشده (شاخص محوری)
+    from ..models import ProjectPilot
+    solved = sum(1 for pil in db.query(ProjectPilot).all()
+                 if pil.decision == "continue" and (pil.outcome_value or "").strip())
+
+    return {
+        "time_to_team_days_median": med,
+        "conversion": {
+            "problem_to_collaboration_pct": round(with_collab / total_problems * 100, 1)
+            if total_problems else None,
+            "problem_to_contract_pct": round(contracted / total_problems * 100, 1)
+            if total_problems else None,
+            "contracted_count": contracted,
+        },
+        "on_time_delivery_pct": round(on_time / total_done * 100, 1) if total_done else None,
+        "on_time_completed": total_done,
+        "repeat_collaboration_pct": round(orgs_repeat / orgs_with_any * 100, 1)
+        if orgs_with_any else None,
+        "solved_with_measured_outcome": solved,
+        "headline": "شاخص محوری: تعداد مسائل صنعتی حل‌شده با نتیجهٔ قابل‌اندازه‌گیری و تأییدشده",
+        "note": "پایهٔ سنجش نتیجه = پایلوت با تصمیم «continue» و ثبت مقدار سنجه از سمت صنعت",
+    }

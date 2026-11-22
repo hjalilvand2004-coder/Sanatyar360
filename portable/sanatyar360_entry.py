@@ -155,6 +155,9 @@ def run(host: str, port: int, open_browser: bool, reset_db: bool, public_url: st
     os.environ.setdefault("UIIS_PORTABLE", "1")
     os.environ.setdefault(
         "DATABASE_URL", "sqlite:///" + DB_PATH.replace("\\", "/"))
+    # پرتیبل = محیط دمو/تست؛ شبیه‌ساز SSO با تنظیم صریح همین‌جا فعال می‌شود
+    # (قاعدهٔ امنیتی v1.1.0: شبیه‌ساز در استقرار عملیاتی بدون این env خاموش است)
+    os.environ.setdefault("SSO_ALLOW_SIMULATOR", "1")
     if public_url:
         os.environ["SSO_PUBLIC_BASE_URL"] = public_url
         log(f"آدرس عمومی ورود یکپارچه: {public_url}")

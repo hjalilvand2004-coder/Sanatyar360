@@ -43,14 +43,17 @@ function Login({ onLogin }: any) {
       provider_error: "ارتباط با سامانه مادر دانشجو۳۶۰ ناموفق بود — بعداً تلاش کنید",
       no_email: "حساب شما فاقد ایمیل سازمانی است",
       sso_user_unknown: "این حساب در صنعت‌یار۳۶۰ ثبت نشده است",
+      issuer_mismatch: "هویت مرکز احراز هویت نامعتبر است (issuer)",
+      audience_mismatch: "توکن برای این سامانه صادر نشده است (audience)",
+      nonce_mismatch: "نشست ورود نامعتبر است (nonce) — دوباره تلاش کنید",
+      sso_not_configured: "ورود یکپارچه هنوز پیکربندی نشده است — از ورود محلی استفاده کنید",
     };
     const ssoErr = q.get("sso_error");
     if (ssoErr) setErr(errs[ssoErr] || "ورود یکپارچه ناموفق بود؛ دوباره تلاش کنید");
-    const tok = q.get("sso_token");
-    if (tok) {
-      // مدل سبک: توکن صادرشده مرکز SSO/سامانه مادر در URL → پذیرش و ساخت نشست محلی
-      api("/auth/sso/accept", { method: "POST", body: { token: tok } })
-        .then((d) => { setToken(d.access_token); onLogin(d); })
+    // v1.1.0: توکن در URL نیست؛ callback کوکی HttpOnly ست کرده و با ?sso_login=1 برمی‌گردد
+    if (q.get("sso_login") === "1") {
+      api("/auth/sso/session", { method: "POST" })
+        .then((d: any) => { setToken(d.access_token); onLogin(d); })
         .catch((e: any) => setErr(e.message));
       history.replaceState({}, "", location.pathname);
       return;
@@ -119,6 +122,7 @@ const NAV = [
     { route: "/maharat", label: "مهارت‌یار۳۶۰", icon: "🧩", roles: ["student", "professor"] },
   ]},
   { group: "صنعت", items: [
+    { route: "/assistant", label: "دستیار نیاز به مسئله", icon: "✨", roles: ["industry_rep", "industry_manager", "cio_manager", "cio_expert"] },
     { route: "/my-problems", label: "مسائل سازمان من", icon: "▤", roles: ["industry_rep", "industry_manager"] },
     { route: "/problems/new", label: "ثبت مسئله جدید", icon: "＋", roles: ["industry_rep", "industry_manager"] },
   ]},
@@ -240,6 +244,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/review": "صف بررسی دفتر ارتباط با صنعت", "/organizations": "سازمان‌ها",
   "/commercialization": "غربالگری فرصت‌های تجاری‌سازی", "/analytics": "تحلیل و شاخص‌ها",
   "/notifications": "اعلان‌ها", "/privacy": "حریم خصوصی و رضایت‌ها", "/audit": "حسابرسی عملیات",
+  "/assistant": "دستیار «از نیاز صنعتی تا پروژه»",
 };
 
 // صفحات در فایل‌های جداگانه
@@ -257,6 +262,7 @@ import Organizations from "./pages/Organizations";
 import Commercialization from "./pages/Commercialization";
 import Analytics from "./pages/Analytics";
 import Maharat from "./pages/Maharat";
+import Assistant from "./pages/Assistant";
 import { Notifications, Privacy, Audit } from "./pages/Misc";
 import { SsoDemo, SsoCallback } from "./pages/SSO";
 
@@ -266,7 +272,7 @@ const PAGES: Record<string, any> = {
   "/applications": Applications, "/collaborations": Collaborations,
   "/review": ReviewQueue, "/organizations": Organizations,
   "/commercialization": Commercialization, "/analytics": Analytics,
-  "/maharat": Maharat,
+  "/maharat": Maharat, "/assistant": Assistant,
   "/notifications": Notifications, "/privacy": Privacy, "/audit": Audit,
   "/problem": ProblemDetail, "/application": AppDetail, "/collaboration": CollabDetail,
 };

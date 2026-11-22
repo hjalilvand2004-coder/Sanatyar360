@@ -20,7 +20,9 @@ hiddenimports = [
     "app.routers.auth", "app.routers.sso", "app.routers.orgs", "app.routers.problems",
     "app.routers.applications", "app.routers.matching", "app.routers.collaborations",
     "app.routers.analytics", "app.routers.commercialization", "app.routers.misc",
-    "app.services", "app.services.matching",
+    "app.routers.assistant", "app.routers.maharat",
+    "app.services", "app.services.matching", "app.services.assistant",
+    "app.services.team", "app.services.maharat",
     "seed", "anyio._backends._asyncio", "multipart",
 ]
 

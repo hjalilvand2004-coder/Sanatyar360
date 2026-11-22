@@ -8,3 +8,4 @@ email-validator
 PyJWT
 argon2-cffi
 python-multipart
+alembic>=1.13

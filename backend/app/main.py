@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from .core.config import settings
 from .db import Base, engine
 from .routers import (
-    analytics, applications, auth, collaborations, commercialization,
+    analytics, applications, assistant, auth, collaborations, commercialization,
     maharat, matching, misc, orgs, problems, sso,
 )
 
@@ -32,8 +32,18 @@ app.add_middleware(
 
 API = settings.api_prefix
 for r in (auth, sso, orgs, problems, applications, matching, collaborations,
-          analytics, commercialization, maharat, misc):
+          analytics, commercialization, maharat, misc, assistant):
     app.include_router(r.router, prefix=API)
+
+# مهاجرت نسخه‌دار اسکیما (Alembic) — فقط در استقرار سرور؛ پرتیبل create_all خودش را دارد
+# (در بستهٔ پرتیبل وابستگی alembic بسته نمی‌شود؛ import محافظت‌شده است)
+try:
+    from .migrations import run_upgrade_head  # noqa: E402
+    _MIGRATION_NOTE = run_upgrade_head()
+    if _MIGRATION_NOTE:
+        print("[startup]", _MIGRATION_NOTE)
+except ImportError:
+    pass
 
 
 @app.exception_handler(HTTPException)

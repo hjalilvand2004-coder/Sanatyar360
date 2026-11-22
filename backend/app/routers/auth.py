@@ -3,7 +3,8 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from ..core.deps import get_current_user, get_memberships
-from ..core.security import create_access_token, verify_password
+from ..core.security import (create_access_token, decode_token_payload,
+                             register_session, revoke_session, verify_password)
 from ..db import get_db
 from ..models import Consent, MemberRole, User, utcnow
 from ..serializers import user_brief
@@ -68,9 +69,24 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail={"code": "inactive",
                                                      "message": "حساب کاربر غیرفعال است"})
     log_audit(db, user.id, "login", "user", user.id, request=request)
+    token = create_access_token(user.id)
+    register_session(db, token, user.id)   # ثبت برای قابلیت ابطال نشست
     db.commit()
-    return {"access_token": create_access_token(user.id), "token_type": "bearer",
-            **_me_payload(db, user)}
+    return {"access_token": token, "token_type": "bearer", **_me_payload(db, user)}
+
+
+@router.post("/logout")
+def logout(request: Request, db: Session = Depends(get_db),
+           user: User = Depends(get_current_user)):
+    """ابطال نشست جاری — توکن پس از این فراخوانی دیگر پذیرفته نمی‌شود."""
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+    claims = decode_token_payload(token) if token else {}
+    jti = claims.get("jti")
+    revoked = revoke_session(db, jti) if jti else False
+    log_audit(db, user.id, "logout", "user", user.id, {"revoked": revoked}, request)
+    db.commit()
+    return {"ok": True, "revoked": revoked}
 
 
 @router.get("/me")

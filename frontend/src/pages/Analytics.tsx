@@ -5,6 +5,7 @@ import { Card, Empty, Alert, BarChart, LineChart, NetworkGraph } from "../ui";
 
 export default function Analytics() {
   const [summary, setSummary] = useState<any>(null);
+  const [outcomes, setOutcomes] = useState<any>(null);
   const [demand, setDemand] = useState<any>(null);
   const [network, setNetwork] = useState<any>(null);
   const [quality, setQuality] = useState<any>(null);
@@ -17,6 +18,7 @@ export default function Analytics() {
       api("/analytics/skill-demand?months=6").then(setDemand).catch(() => {}),
       api("/analytics/collaboration-network").then(setNetwork).catch(() => {}),
       api("/analytics/quality").then(setQuality).catch(() => {}),
+      api("/analytics/outcomes").then(setOutcomes).catch(() => {}),
       api("/maharat/status").then(setMaharat).catch(() => {}),
     ]);
   }, []);
@@ -29,6 +31,20 @@ export default function Analytics() {
         تحلیل‌های تجمیعی و ناشناس برای سیاست‌گذار و مدیر دانشگاه. افزایش تعداد آگهی لزوماً به معنای افزایش کل تقاضا نیست —
         منبع، تاریخ و محدودیت پوشش داده در هر نمودار نمایش داده می‌شود (AC-10).
       </Alert>
+      {outcomes && (
+        <Card title="🎯 شاخص‌های نتیجه‌محور — ارزش خروجی، نه تعداد ورودی">
+          <Alert kind="ok"><b>{outcomes.headline}</b> — مقدار جاری: <b>{fa(outcomes.solved_with_measured_outcome)}</b></Alert>
+          <div className="grid cols-4">
+            <div className="kpi"><div className="val">{outcomes.time_to_team_days_median != null ? fa(outcomes.time_to_team_days_median) : "—"}</div><div className="lbl">میانهٔ روز از ثبت مسئله تا تیم مناسب</div></div>
+            <div className="kpi"><div className="val">{outcomes.conversion?.problem_to_collaboration_pct != null ? fa(outcomes.conversion.problem_to_collaboration_pct) + "٪" : "—"}</div><div className="lbl">تبدیل مسئله به همکاری</div></div>
+            <div className="kpi"><div className="val">{outcomes.conversion?.problem_to_contract_pct != null ? fa(outcomes.conversion.problem_to_contract_pct) + "٪" : "—"}</div><div className="lbl">تبدیل مسئله به قرارداد</div></div>
+            <div className="kpi"><div className="val">{outcomes.on_time_delivery_pct != null ? fa(outcomes.on_time_delivery_pct) + "٪" : "—"}</div><div className="lbl">تحویل به‌موقع و پذیرش خروجی</div></div>
+            <div className="kpi"><div className="val">{outcomes.repeat_collaboration_pct != null ? fa(outcomes.repeat_collaboration_pct) + "٪" : "—"}</div><div className="lbl">نرخ همکاری مجدد شرکت‌ها</div></div>
+            <div className="kpi"><div className="val">{fa(outcomes.solved_with_measured_outcome)}</div><div className="lbl">مسئله حل‌شده با نتیجهٔ قابل‌اندازه‌گیری و تأییدشده</div></div>
+          </div>
+          <p style={{ fontSize: 12, opacity: 0.65, marginTop: 8 }}>{outcomes.note} — پایهٔ سنجش «پایلوت» با تصمیم صنعت است؛ یعنی همان مسیری که ریسک را کم و اعتماد را زیاد می‌کند.</p>
+        </Card>
+      )}
       {summary && (
         <Card title="شاخص‌های کلیدی سامانه">
           <div className="grid cols-4">

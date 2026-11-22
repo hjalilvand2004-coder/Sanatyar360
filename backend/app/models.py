@@ -676,3 +676,105 @@ class MaharatLink(Base):
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship()
+
+
+# ---------- نشست‌ها (قابلیت ابطال — AC امنیتی v1.1.0) ----------
+class SessionRecord(Base):
+    """رکورد نشست فعال برای ابطال (خروج/لغو) — jti یکتا."""
+    __tablename__ = "session_records"
+    jti: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- دستیار تبدیل نیاز مبهم صنعت به مسئله اجرایی ----------
+class AssistantIntake(Base):
+    """جلسه پرسش‌گری دستیار: پاسخ‌های راهنما → پیش‌نویس استاندارد مسئله.
+
+    خروجی دستیار «پیش‌نویس + برآورد» است، نه مسئله قطعی؛ مسئله فقط پس از
+    تأیید کارشناس/نماینده صنعتی ساخته می‌شود (تصمیم نهایی انسانی).
+    """
+    __tablename__ = "assistant_intakes"
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uid)
+    organization_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("organizations.id"), index=True, nullable=True)
+    created_by: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)  # draft/confirmed/discarded
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)   # پاسخ‌های پرسش‌گری
+    draft: Mapped[dict] = mapped_column(JSON, default=dict)     # پیش‌نویس تولیدشده
+    algorithm_version: Mapped[str] = mapped_column(String(40), default="intake-v1.0")
+    problem_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("industrial_problems.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------- تیم‌سازی توضیح‌پذیر ----------
+class TeamProposal(Base):
+    """پیشنهاد ترکیب تیم برای یک مسئله — با دو شاخص جدای «تناسب» و «اطمینان داده».
+
+    composition: [{user_brief..., role_in_team, fit, confidence, evidence[],
+                  gaps[], capacity_note, reasons[], two_way_note}]
+    coverage: {covered: [...], missing: [...]} — پوشش تجمعی مهارت‌های الزامی
+    """
+    __tablename__ = "team_proposals"
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uid)
+    problem_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("industrial_problems.id"), index=True)
+    algorithm_version: Mapped[str] = mapped_column(String(40), default="team-v1.0")
+    composition: Mapped[list] = mapped_column(JSON, default=list)
+    coverage: Mapped[dict] = mapped_column(JSON, default=dict)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resource_notes: Mapped[list] = mapped_column(JSON, default=list)  # آزمایشگاه/داده/مشاور
+    status: Mapped[str] = mapped_column(String(20), default="proposed", index=True)  # proposed/accepted/discarded
+    created_by: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id"))
+    decided_by: Mapped[str | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("collaboration_projects.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- پایلوت کوتاه پیش از قرارداد اصلی ----------
+class ProjectPilot(Base):
+    """فاز اثبات امکان‌پذیری: مساله محدود، زمان کوتاه، بودجه مستقل، خروجی قابل‌آزمایش."""
+    __tablename__ = "project_pilots"
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("collaboration_projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    scope: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    end_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    budget_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    acceptance_test: Mapped[str | None] = mapped_column(Text, nullable=True)  # خروجی قابل‌آزمایش
+    outcome_metric: Mapped[str | None] = mapped_column(String(200), nullable=True)  # سنجه نتیجه
+    outcome_value: Mapped[str | None] = mapped_column(String(200), nullable=True)   # مقدار اندازه‌گیری‌شده
+    decision: Mapped[str | None] = mapped_column(String(20), nullable=True)  # continue/adjust/stop
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- مدیریت تغییرات دامنه/زمان/هزینه ----------
+class ProjectChangeRequest(Base):
+    """ثبت تغییر با تأیید طرف مقابل — تصمیم تغییر انسانی و پرسابقه."""
+    __tablename__ = "project_change_requests"
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("collaboration_projects.id"), index=True)
+    field: Mapped[str] = mapped_column(String(30))  # scope/schedule/budget
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str] = mapped_column(Text)
+    justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending/approved/rejected
+    requested_by: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id"))
+    decided_by: Mapped[str | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

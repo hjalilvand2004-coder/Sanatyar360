@@ -30,8 +30,13 @@ def _skill_map(db: Session, user_id: str) -> dict[str, dict]:
             for r in rows}
 
 
-def score_candidate(db: Session, problem: IndustrialProblem, user: User) -> dict | None:
-    """None = candidate was filtered out by hard requirements."""
+def score_candidate(db: Session, problem: IndustrialProblem, user: User,
+                    relaxed: bool = False) -> dict | None:
+    """None = candidate was filtered out by hard requirements.
+
+    relaxed=True: فیلتر سختِ «حداقل نیمی از مهارت‌های الزامی» حذف می‌شود —
+    برای تیم‌سازی که باید حتی با شکاف صریح، نامزد و کمبودها را نشان دهد.
+    """
     reasons, missing = [], []
 
     # مرحله اول — فیلتر شرایط الزامی (قبل از رتبه‌بندی)
@@ -55,8 +60,10 @@ def score_candidate(db: Session, problem: IndustrialProblem, user: User) -> dict
                     if rs.skill.name in covered_names and rs.skill_id not in smap]
     overlap = [s for s in required if s in smap]
     overlap_ids = set(overlap) | {rs.skill_id for rs in maharat_only}
-    if required and len(overlap_ids) < max(1, len(required) // 2):
+    if required and not relaxed and len(overlap_ids) < max(1, len(required) // 2):
         return None  # حداقل نیمی از مهارت‌های الزامی
+    if required and relaxed and overlap_ids and len(required) > len(overlap_ids):
+        reasons.append("پیشنهاد با شکاف صریح: پوششِ کامل مهارت‌های الزامی مشاهده نشد")
 
     # مرحله دوم — رتبه‌بندی ترکیبی
     skill_fit = (len(overlap_ids) / len(required)) if required else 0.5

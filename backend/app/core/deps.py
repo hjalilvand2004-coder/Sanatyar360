@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import MemberRole, MembershipStatus, Organization, OrganizationMembership, User
-from .security import decode_token
+from .security import decode_token, decode_token_payload, is_session_revoked
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -22,6 +22,11 @@ def get_current_user(request: Request, db: Session = Depends(get_db),
     if not user_id:
         raise HTTPException(status_code=401, detail={"code": "invalid_token",
                                                      "message": "توکن نامعتبر یا منقضی است"})
+    # ابطال نشست — اگر jti توکن لغو شده باشد (خروج/لغو)، دسترسی بسته می‌شود
+    claims = decode_token_payload(creds.credentials) or {}
+    if is_session_revoked(db, claims.get("jti")):
+        raise HTTPException(status_code=401, detail={"code": "session_revoked",
+                                                     "message": "نشست باطل شده است — دوباره وارد شوید"})
     user = db.get(User, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail={"code": "inactive",

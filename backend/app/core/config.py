@@ -81,8 +81,10 @@ class Settings(BaseSettings):
     sso_default_role: str = os.environ.get("SSO_DEFAULT_ROLE", "student")
     sso_auto_create: bool = os.environ.get("SSO_AUTO_CREATE", "1") == "1"
     sso_label: str = os.environ.get("SSO_LABEL", "ورود یکپارچه سازمانی")
-    # توکن مشترک با مرکز SSO (مدل سبک ?sso_token=) — کلید HMAC برای اعتبارسنجی توکن مادر
+    # توکن مشترک با مرکز SSO (مدل سبک sso_token) — کلید HMAC برای اعتبارسنجی توکن مادر
     sso_shared_secret: str = os.environ.get("SSO_SHARED_SECRET", "")
+    # شبیه‌ساز ورود فقط با تنظیم صریح محیط توسعه/دمو فعال می‌شود (پرتیبل خودش ست می‌کند)
+    sso_allow_simulator: bool = os.environ.get("SSO_ALLOW_SIMULATOR", "0") == "1"
     sso_public_base_url: str = os.environ.get("SSO_PUBLIC_BASE_URL", "")  # اگر پشت پروکسی است
     # پیکربندی زمان اجرا (پنل ادمین) — فایل JSON کنار داده‌ها؛ env همچنان اولویت دارد
     sso_runtime_config_path: str = os.environ.get(

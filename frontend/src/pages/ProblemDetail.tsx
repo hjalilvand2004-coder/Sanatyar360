@@ -165,7 +165,7 @@ export default function ProblemDetail({ route }: any) {
 
       <div className="tabbar">
         {[["info", "شرح مسئله"], ["qa", "پرسش و پاسخ"], ["reviews", "بررسی‌ها"],
-          ...(isIndustry || isCio ? [["apps", `متقاضیان (${fa(apps.length)})`], ["matches", "نتایج تطبیق"]] : [])]
+          ...(isIndustry || isCio ? [["apps", `متقاضیان (${fa(apps.length)})`], ["matches", "نتایج تطبیق"], ["team", "تیم پیشنهادی"]] : [])]
           .map(([k, t]) => <button key={k as string} className={tab === k ? "active" : ""} onClick={() => setTab(k as string)}>{t}</button>)}
       </div>
 
@@ -241,6 +241,8 @@ export default function ProblemDetail({ route }: any) {
           )}
         </Card>
       )}
+
+      {tab === "team" && <TeamTab problemId={id} canManage={isIndustry || isCio} nav={nav} notify={notify} />}
 
       {modal === "apply" && <ApplyModal problem={p} onClose={() => setModal("")} onDone={() => { setModal(""); load(); nav("/applications"); }} />}
       {modal === "review" && <ReviewModal problemId={id} onClose={() => setModal("")} onDone={() => { setModal(""); load(); }} />}
@@ -346,5 +348,87 @@ function ReviewModal({ problemId, onClose, onDone }: any) {
       <Field label="نظر تخصصی" hint="برای اصلاح/رد، ثبت دلیل الزامی است"><textarea value={note} onChange={(e: any) => setNote(e.target.value)} /></Field>
       <button className="btn primary" onClick={go}>ثبت بررسی</button>
     </Modal>
+  );
+}
+
+// ---------- تیم‌سازی توضیح‌پذیر (v1.1.0) ----------
+function TeamTab({ problemId, canManage, nav, notify }: any) {
+  const [items, setItems] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const load = () => api(`/problems/${problemId}/team-proposals`).then((d: any) => setItems(d.items || [])).catch(() => {});
+  useEffect(load, [problemId]);
+
+  const build = async () => {
+    setBusy(true); setErr("");
+    try {
+      await api(`/problems/${problemId}/team-proposals`, { method: "POST" });
+      notify("پیشنهاد تیم ساخته شد"); load();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const accept = async (pid: string) => {
+    setBusy(true); setErr("");
+    try {
+      const d = await api(`/team-proposals/${pid}/accept`, { method: "POST" });
+      notify("همکاری ساخته شد — گام بعدی: پایلوت یا قرارداد");
+      nav("/collaboration/" + d.project_id);
+    } catch (e: any) { setErr(e.message); setBusy(false); }
+  };
+
+  return (
+    <div>
+      {err && <Alert kind="error">{err}</Alert>}
+      <Card title="🧩 تیم‌سازی توضیح‌پذیر — «تیم آماده حل مسئله»">
+        <Alert kind="info">
+          به‌جای معرفی فرد، ترکیب پیشنهادی تیم ارائه می‌شود: استاد راهبر + دانشجوی متخصص + دانشجوی
+          مکمل + منابع. «تناسب (fit)» و «اطمینان به داده‌ها (confidence)» دو شاخص جدایند؛ کمبود داده
+          به‌معنای ضعف فرد نیست. تصمیم پذیرش نهایی با انسان است.
+        </Alert>
+        {canManage && <button className="btn primary" disabled={busy} onClick={build}>
+          {busy ? "در حال تحلیل…" : "ساخت پیشنهاد تیم ✦"}</button>}
+        {items.length === 0 && <Empty text="هنوز پیشنهاد تیمی ساخته نشده است" />}
+        {items.map((t) => (
+          <div key={t.id} style={{ border: "1px solid var(--card-border)", borderRadius: 14, padding: 16, marginTop: 12 }}>
+            <div className="btn-row" style={{ justifyContent: "space-between" }}>
+              <span className="badge blue">{t.algorithm_version}</span>
+              <span className={`badge ${t.status === "accepted" ? "green" : "gray"}`}>
+                {t.status === "accepted" ? "پذیرفته‌شده ✓" : "پیشنهاد"}</span>
+            </div>
+            <p style={{ margin: "10px 0" }}>{t.explanation}</p>
+            {t.composition.map((m: any, i: number) => (
+              <div key={i} className="card" style={{ padding: "12px 14px", marginBottom: 10 }}>
+                <div className="btn-row" style={{ justifyContent: "space-between" }}>
+                  <b>{m.user.full_name} <span className="badge violet">{m.role_in_team}</span></b>
+                  <span className="muted" style={{ fontSize: 12 }}>{m.user.department || "—"}</span>
+                </div>
+                <div className="grid cols-2" style={{ marginTop: 8 }}>
+                  <div>
+                    <div className="barchart-row"><span className="bl">تناسب (fit)</span>
+                      <div className="bt"><div style={{ width: m.fit + "%" }} /></div><span className="bv">{fa(m.fit)}٪</span></div>
+                    <div className="barchart-row"><span className="bl">اطمینان به داده‌ها</span>
+                      <div className="bt"><div style={{ width: m.confidence + "%", background: "var(--grad-teal)" }} /></div><span className="bv">{fa(m.confidence)}٪</span></div>
+                  </div>
+                  <div style={{ fontSize: 12.5 }}>
+                    {m.evidence?.length > 0 && <div>✓ شواهد تأییدشده: {m.evidence.join("، ")}</div>}
+                    {m.gaps?.length > 0 && <div className="muted">△ شکاف: {m.gaps.join("، ")}</div>}
+                    <div className="muted">⏱ ظرفیت: {m.capacity?.note}</div>
+                    <div className="muted">↔ {m.two_way_note}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="detail-grid" style={{ margin: "8px 0" }}>
+              <dt className="muted">پوشش تجمعی</dt><dd>{t.coverage?.covered?.join("، ") || "—"}</dd>
+              <dt className="muted">شکاف باقی‌مانده</dt><dd>{t.coverage?.missing?.join("، ") || "—"}</dd>
+            </div>
+            {(t.resource_notes || []).map((n: string, i: number) => <div key={i} className="alert warn">• {n}</div>)}
+            {canManage && t.status === "proposed" && (
+              <button className="btn ok" disabled={busy} onClick={() => accept(t.id)}>پذیرش تیم و ساخت همکاری ✓</button>
+            )}
+            {t.project_id && <button className="btn" onClick={() => nav("/collaboration/" + t.project_id)}>مشاهده همکاری ←</button>}
+          </div>
+        ))}
+      </Card>
+    </div>
   );
 }

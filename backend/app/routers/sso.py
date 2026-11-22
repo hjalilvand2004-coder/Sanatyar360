@@ -1,6 +1,6 @@
-"""ورود یکپارچه (SSO) — هم‌تراز با قرارداد اکوسیستم دانشجو۳۶۰.
+"""ورود یکپارچه (SSO) — هم‌تراز با قرارداد اکوسیستم دانشجویار۳۶۰ + سخت‌سازی امنیتی v1.1.0.
 
-طبق پنل مدیریت سامانه‌های دانشجو۳۶۰ (همان الگوی برنامه‌یار۳۶۰/مهارت‌یار۳۶۰):
+طبق پنل مدیریت سامانه‌های دانشجویار۳۶۰ (همان الگوی برنامه‌یار۳۶۰/مهارت‌یار۳۶۰):
   سامانه: صنعت‌یار۳۶۰ | کلید سامانه (appKey): sanatyar | Client ID در SSO: sanatyar360
   «آدرس ورود» ثبت‌شده در مادر = نقطه شروع جریان OIDC این سامانه:
       GET /api/v1/auth/sso/login
@@ -9,17 +9,20 @@
   GET  /api/v1/auth/sso/config          → {enabled, mode, login_url, label, redirect_uri_auto, …}
   GET  /api/v1/auth/sso/admin/config    → پیکربندی جاری (مدیر فنی)
   PUT  /api/v1/auth/sso/admin/config    → ذخیره پیکربندی زمان اجرا (issuer، client_id، …)
-  GET  /api/v1/auth/sso/login           → شروع جریان (oidc → مادر | demo → شبیه‌ساز داخلی)
-  GET  /api/v1/auth/sso/callback        → تبادل code و ساخت نشست ← ریدایرکت با ?sso_token=
-  POST /api/v1/auth/sso/accept          → پذیرش توکن مرکز SSO (مدل سبک ?sso_token=URL)
+  GET  /api/v1/auth/sso/login           → شروع جریان (oidc → مادر | demo → شبیه‌ساز | disabled)
+  GET  /api/v1/auth/sso/callback        → تبادل code (PKCE) → نشست با کوکی HttpOnly
+  POST /api/v1/auth/sso/session         → تبادل امن کوکی نشست با توکن API (چرخش توکن)
+  POST /api/v1/auth/sso/accept          → پذیرش توکن مرکز SSO سرویس‌به‌سرویس (HMAC مشترک)
 
-دو حالت:
-  - oidc: وقتی «فعال» و issuer تنظیم شده باشد (env یا پنل ادمین)، ریدایرکت واقعی به مادر.
-    نقاط پایانی به‌صورت پیش‌فرض از issuer مشتق می‌شوند:
-      {issuer}/api/auth/sso/authorize | /token | /userinfo   (قابل override با env)
-  - demo: در نبود مادر، شبیه‌ساز داخلی با همان شکل و جریان اجرا می‌شود
-          (برای تست پرتیبل؛ در محیط عملیاتی با فعال‌سازی issuer حذف می‌شود).
+سخت‌سازی v1.1.0 (فاز اعتماد):
+  - توکن نشست دیگر در URL نمی‌آید؛ callback کوکی HttpOnly/SameSite=Lax ست می‌کند
+    (Secure در HTTPS) و SPA با POST /session آن را به توکن API «چرخش‌یافته» تبدیل می‌کند.
+  - جریان OIDC با PKCE (S256) و nonce؛ اعتبارسنجی issuer/audience ادعاهای id_token.
+  - شبیه‌ساز فقط با SSO_ALLOW_SIMULATOR=1 فعال است؛ قطع پرتال در تولید مسیر جعلی نمی‌سازد.
+  - نشست‌های محلی قابل ابطال‌اند (session_records + POST /auth/logout).
 """
+import base64
+import hashlib
 import json
 import os
 import secrets
@@ -33,16 +36,19 @@ from sqlalchemy.orm import Session
 
 from ..core.config import settings
 from ..core.deps import get_current_user, get_memberships
-from ..core.security import create_access_token
+from ..core.security import (create_access_token, decode_token_payload,
+                             register_session, revoke_session)
 from ..db import get_db
 from ..models import MemberRole, MembershipStatus, Organization, OrganizationMembership, User
 from ..services import log_audit
 
 router = APIRouter(prefix="/auth/sso", tags=["sso"])
 
-# ذخیره موقت state/code در حافظهٔ فرآیند — در پروداکشن به Redis/دیتابیس منتقل شود
-_state_store: dict[str, float] = {}
+# ذخیره موقت state → {ts, verifier, nonce} در حافظهٔ فرآیند — در پروداکشن به Redis منتقل شود
+_state_store: dict[str, dict] = {}
 _demo_codes: dict[str, dict] = {}
+
+COOKIE_NAME = "uiis_session"
 
 ROLE_MAP: dict[str, MemberRole] = {}
 try:
@@ -119,9 +125,21 @@ def _cfg() -> dict:
 
 
 def sso_effective_mode() -> str:
-    """oidc = مادر واقعی فعال؛ demo = شبیه‌ساز داخلی (پرتیبل/تست)."""
+    """oidc = مادر واقعی فعال؛ demo = شبیه‌ساز (فقط با SSO_ALLOW_SIMULATOR=1)؛ disabled."""
     c = _cfg()
-    return "oidc" if (c["enabled"] and c["issuer"]) else "demo"
+    if c["enabled"] and c["issuer"]:
+        return "oidc"
+    if settings.sso_allow_simulator:
+        return "demo"
+    return "disabled"
+
+
+def _pkce() -> tuple[str, str]:
+    """تولید جفت PKCE (verifier، challenge=BASE64URL(SHA256(verifier))) — روش S256."""
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return verifier, challenge
 
 
 def _issuer_base(c: dict) -> str:
@@ -149,7 +167,7 @@ def _redirect_uri(request: Request, c: dict) -> str:
 
 def _cleanup():
     now = time.time()
-    for k in [k for k, t in _state_store.items() if now - t > 600]:
+    for k in [k for k, v in _state_store.items() if now - (v.get("ts") or 0) > 600]:
         _state_store.pop(k, None)
     for k in [k for k, c in _demo_codes.items() if now - c.get("ts", 0) > 300]:
         _demo_codes.pop(k, None)
@@ -206,18 +224,21 @@ def sso_config(request: Request):
     c = _cfg()
     mode = sso_effective_mode()
     base = _base_url(request)
+    providers = {"oidc": "دانشجو۳۶۰ (سامانه مادر)", "demo": "شبیه‌ساز داخلی دانشجو۳۶۰",
+                 "disabled": "پیکربندی‌نشده"}
     return {
-        "enabled": c["enabled"],
+        "enabled": c["enabled"] and mode != "disabled",
         "mode": mode,
-        "provider": "دانشجو۳۶۰ (سامانه مادر)" if mode == "oidc" else "شبیه‌ساز داخلی دانشجو۳۶۰",
+        "provider": providers[mode],
         "login_url": base + "/api/v1/auth/sso/login",
         "label": c["label"],
         "sub_label": "با حساب پرتال دانشجویار۳۶۰ — بدون تکرار رمز",
         "redirect_uri_auto": base + "/api/v1/auth/sso/callback",
+        "session_method": "cookie",   # v1.1.0: نشست با کوکی HttpOnly — توکن در URL نیست
         "client_id": c["client_id"],
         "app_key": settings.sso_app_key,
         "issuer": _issuer_base(c),
-        "note": "این مسیر (login_url) باید در پنل مدیریت سامانه‌های دانشجو۳۶۰ به‌عنوان «آدرس ورود» ثبت شود",
+        "note": "این مسیر (login_url) باید در پنل مدیریت سامانه‌های دانشجویار۳۶۰ به‌عنوان «آدرس ورود» ثبت شود",
     }
 
 
@@ -256,22 +277,32 @@ def _require_sys_admin(user: User, db: Session):
 def sso_login(request: Request):
     """نقطه ورود OIDC — همین مسیر در پنل سامانه مادر ثبت می‌شود."""
     _cleanup()
+    mode = sso_effective_mode()
+    if mode == "disabled":
+        raise HTTPException(status_code=503, detail={
+            "code": "sso_not_configured",
+            "message": "ورود یکپارچه پیکربندی نشده است — issuer سامانه مادر را تنظیم کنید"})
     state = secrets.token_urlsafe(24)
-    _state_store[state] = time.time()
+    verifier, challenge = _pkce()
+    nonce = secrets.token_urlsafe(16)
+    _state_store[state] = {"ts": time.time(), "verifier": verifier, "nonce": nonce}
     c = _cfg()
-    if sso_effective_mode() == "oidc":
+    if mode == "oidc":
         params = {
             "client_id": c["client_id"],
             "response_type": "code",
             "scope": c["scope"],
             "redirect_uri": _redirect_uri(request, c),
             "state": state,
+            "nonce": nonce,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
             "app_key": settings.sso_app_key,
         }
         url = _endpoint(c, "authorize") + ("&" if "?" in _endpoint(c, "authorize") else "?") + \
             urllib.parse.urlencode(params)
         return RedirectResponse(url, status_code=302)
-    # حالت نمایشی: صفحه شبیه‌ساز سامانه مادر (همان جریان، همان callback)
+    # حالت نمایشی (فقط با SSO_ALLOW_SIMULATOR=1): صفحه شبیه‌ساز سامانه مادر
     return RedirectResponse("/#/sso-demo?state=" + urllib.parse.quote(state), status_code=302)
 
 
@@ -298,23 +329,30 @@ def demo_authorize(payload: dict, request: Request):
 @router.get("/callback")
 def sso_callback(request: Request, code: str = "", state: str = "", error: str = "",
                  db: Session = Depends(get_db)):
-    """پایان جریان: تبادل code با مادر → نشست محلی → ریدایرکت با ?sso_token= (قرارداد خانواده)."""
+    """پایان جریان: تبادل code با مادر (PKCE) → اعتبارسنجی ادعاها → نشست با کوکی HttpOnly.
+
+    توکن نشست در URL نمی‌آید؛ مرورگر با کوکی HttpOnly به /session می‌رود و توکن API
+    چرخش‌یافته را می‌گیرد. این امر افشای توکن در تاریخچه/لاگ/ارجاع را حذف می‌کند.
+    """
     _cleanup()
     if error:
         return RedirectResponse("/?sso_error=" + urllib.parse.quote(error), status_code=302)
-    if not state or state not in _state_store:
+    entry_state = _state_store.get(state or "")
+    if not state or not entry_state:
         return RedirectResponse("/?sso_error=" + urllib.parse.quote("invalid_state"), status_code=302)
     _state_store.pop(state, None)
     c = _cfg()
+    mode = sso_effective_mode()
 
-    if sso_effective_mode() == "oidc":
-        # تبادل code با نقطه پایان Token سامانه مادر
+    if mode == "oidc":
+        # تبادل code با نقطه پایان Token سامانه مادر + code_verifier (PKCE)
         data = urllib.parse.urlencode({
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": _redirect_uri(request, c),
             "client_id": c["client_id"],
             "client_secret": settings.sso_client_secret,
+            "code_verifier": entry_state.get("verifier", ""),
         }).encode()
         req = urllib.request.Request(_endpoint(c, "token"), data=data, method="POST",
                                      headers={"Content-Type": "application/x-www-form-urlencoded"})
@@ -325,8 +363,16 @@ def sso_callback(request: Request, code: str = "", state: str = "", error: str =
             return RedirectResponse("/?sso_error=" + urllib.parse.quote("provider_error"), status_code=302)
         claims: dict = {}
         if token_res.get("id_token"):
-            from ..core.security import decode_token_payload
             claims = decode_token_payload(token_res["id_token"]) or {}
+            # اعتبارسنجی دقیق id_token: issuer، audience و nonce
+            if claims.get("iss") and claims["iss"].rstrip("/") != _issuer_base(c):
+                return RedirectResponse("/?sso_error=" + urllib.parse.quote("issuer_mismatch"), status_code=302)
+            aud = claims.get("aud")
+            aud_list = aud if isinstance(aud, list) else [aud]
+            if aud and c["client_id"] not in aud_list:
+                return RedirectResponse("/?sso_error=" + urllib.parse.quote("audience_mismatch"), status_code=302)
+            if claims.get("nonce") and claims["nonce"] != entry_state.get("nonce"):
+                return RedirectResponse("/?sso_error=" + urllib.parse.quote("nonce_mismatch"), status_code=302)
         if settings.sso_userinfo_url and token_res.get("access_token"):
             ureq = urllib.request.Request(_endpoint(c, "userinfo"),
                                           headers={"Authorization": "Bearer " + token_res["access_token"]})
@@ -350,10 +396,46 @@ def sso_callback(request: Request, code: str = "", state: str = "", error: str =
         return RedirectResponse("/?sso_error=" + urllib.parse.quote("no_email"), status_code=302)
     user = _provision(db, email, name, master_roles)
     log_audit(db, user.id, "sso_login", "user", user.id,
-              {"mode": sso_effective_mode(), "master_roles": master_roles}, request)
+              {"mode": mode, "master_roles": master_roles}, request)
     db.commit()
     token = create_access_token(user.id)
-    return RedirectResponse("/?sso_token=" + urllib.parse.quote(token) + "&sso_login=1", status_code=302)
+    register_session(db, token, user.id)
+    db.commit()
+    resp = RedirectResponse("/?sso_login=1", status_code=302)
+    resp.set_cookie(COOKIE_NAME, token, max_age=settings.jwt_expire_minutes * 60,
+                    httponly=True, samesite="lax",
+                    secure=request.url.scheme == "https", path="/")
+    return resp
+
+
+@router.post("/session")
+def sso_session(request: Request, db: Session = Depends(get_db)):
+    """تبادل امن کوکی نشست با توکن API (چرخش توکن) — خروجی همان شکل /auth/login."""
+    cookie_token = request.cookies.get(COOKIE_NAME, "")
+    if not cookie_token:
+        raise HTTPException(status_code=401, detail={
+            "code": "no_sso_session",
+            "message": "نشست ورود یکپارچه یافت نشد — از دکمه ورود یکپارچه شروع کنید"})
+    from ..core.security import is_session_revoked
+    claims = decode_token_payload(cookie_token) or {}
+    user_id = claims.get("sub")
+    if not user_id or is_session_revoked(db, claims.get("jti")):
+        raise HTTPException(status_code=401, detail={
+            "code": "invalid_sso_session",
+            "message": "نشست ورود یکپارچه نامعتبر یا باطل شده است"})
+    user = db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail={
+            "code": "inactive", "message": "کاربر غیرفعال است"})
+    # چرخش: نشست کوکی ابطال و توکن تازه صادر می‌شود
+    revoke_session(db, claims.get("jti"))
+    token = create_access_token(user.id)
+    register_session(db, token, user.id)
+    log_audit(db, user.id, "sso_session_exchange", "user", user.id, {}, request)
+    db.commit()
+    from .auth import _me_payload
+    return {"access_token": token, "token_type": "bearer", "mode": "sso_cookie",
+            **_me_payload(db, user)}
 
 
 @router.post("/accept")
