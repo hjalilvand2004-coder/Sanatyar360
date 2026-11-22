@@ -66,17 +66,30 @@ class Settings(BaseSettings):
     ai_enabled: bool = True
 
     # ---------- ورود یکپارچه (SSO/OIDC) با سامانه مادر دانشجو۳۶۰ ----------
-    # طبق پنل مدیریت سامانه‌های دانشجو۳۶۰:
+    # طبق پنل مدیریت سامانه‌های دانشجو۳۶۰ (مانند برنامه‌یار۳۶۰ و مهارت‌یار۳۶۰):
     #   کلید سامانه (appKey): sanatyar | Client ID: sanatyar360
     #   آدرس ورود سامانه = نقطه شروع جریان OIDC همین سامانه: /api/v1/auth/sso/login
+    #   issuer = نشانی پرتال سازمانی (سامانه مادر) — نقاط پایانی از آن مشتق می‌شود
     sso_app_key: str = os.environ.get("SSO_APP_KEY", "sanatyar")
     sso_client_id: str = os.environ.get("SSO_CLIENT_ID", "sanatyar360")
     sso_client_secret: str = os.environ.get("SSO_CLIENT_SECRET", "")
     sso_issuer: str = os.environ.get("SSO_ISSUER", "")          # مثال: http://188.212.96.235:8086
-    sso_auth_url: str = os.environ.get("SSO_AUTH_URL", "")      # نقطه پایان Authorization
-    sso_token_url: str = os.environ.get("SSO_TOKEN_URL", "")    # نقطه پایان Token
-    sso_userinfo_url: str = os.environ.get("SSO_USERINFO_URL", "")
+    sso_auth_url: str = os.environ.get("SSO_AUTH_URL", "")      # پیش‌فرض: {issuer}/api/auth/sso/authorize
+    sso_token_url: str = os.environ.get("SSO_TOKEN_URL", "")    # پیش‌فرض: {issuer}/api/auth/sso/token
+    sso_userinfo_url: str = os.environ.get("SSO_USERINFO_URL", "")  # پیش‌فرض: {issuer}/api/auth/sso/userinfo
+    sso_scope: str = os.environ.get("SSO_SCOPE", "openid profile roles")
+    sso_default_role: str = os.environ.get("SSO_DEFAULT_ROLE", "student")
+    sso_auto_create: bool = os.environ.get("SSO_AUTO_CREATE", "1") == "1"
+    sso_label: str = os.environ.get("SSO_LABEL", "ورود یکپارچه سازمانی")
+    # توکن مشترک با مرکز SSO (مدل سبک ?sso_token=) — کلید HMAC برای اعتبارسنجی توکن مادر
+    sso_shared_secret: str = os.environ.get("SSO_SHARED_SECRET", "")
     sso_public_base_url: str = os.environ.get("SSO_PUBLIC_BASE_URL", "")  # اگر پشت پروکسی است
+    # پیکربندی زمان اجرا (پنل ادمین) — فایل JSON کنار داده‌ها؛ env همچنان اولویت دارد
+    sso_runtime_config_path: str = os.environ.get(
+        "SSO_RUNTIME_CONFIG_PATH",
+        os.path.join(_portable_data_dir() if FROZEN else os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                     "sso_config.json"),
+    )
     # نگاشت نقش‌های سامانه مادر (مثل sanatyar.admin) به نقش‌های محلی
     sso_role_map: str = os.environ.get(
         "SSO_ROLE_MAP",

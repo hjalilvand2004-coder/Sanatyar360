@@ -45,3 +45,15 @@ def decode_token_payload(token: str) -> dict | None:
         return jwt.decode(token, options={"verify_signature": False})
     except jwt.PyJWTError:
         return None
+
+
+def verify_hmac_token(token: str, secret: str) -> dict | None:
+    """اعتبارسنجی توکن JWT صادرشده مرکز SSO/سامانه مادر با کلید مشترک (مدل سبک ?sso_token=).
+
+    امضای HS256/384/512 و انقضا بررسی می‌شود؛ audience بررسی نمی‌شود (توکن‌های بین‌سامانه‌ای).
+    """
+    try:
+        return jwt.decode(token, secret, algorithms=["HS256", "HS384", "HS512"],
+                          options={"verify_aud": False})
+    except jwt.PyJWTError:
+        return None

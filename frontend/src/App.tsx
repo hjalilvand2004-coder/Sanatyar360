@@ -25,6 +25,7 @@ function Login({ onLogin }: any) {
   const [pass, setPass] = useState("uiis1234");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sso, setSso] = useState<any>(null);
   const go = async (e?: string, p?: string) => {
     setBusy(true); setErr("");
     try {
@@ -33,6 +34,36 @@ function Login({ onLogin }: any) {
       onLogin(data);
     } catch (ex: any) { setErr(ex.message); } finally { setBusy(false); }
   };
+  useEffect(() => {
+    // ورود یکپارچه — قرارداد مشترک زیرسیستم‌های اکوسیستم دانشجویار۳۶۰
+    const q = new URLSearchParams(location.search);
+    const errs: Record<string, string> = {
+      invalid_state: "نشست ورود یکپارچه منقضی شده است — دوباره تلاش کنید",
+      invalid_code: "کد احراز نامعتبر بود — دوباره تلاش کنید",
+      provider_error: "ارتباط با سامانه مادر دانشجو۳۶۰ ناموفق بود — بعداً تلاش کنید",
+      no_email: "حساب شما فاقد ایمیل سازمانی است",
+      sso_user_unknown: "این حساب در صنعت‌یار۳۶۰ ثبت نشده است",
+    };
+    const ssoErr = q.get("sso_error");
+    if (ssoErr) setErr(errs[ssoErr] || "ورود یکپارچه ناموفق بود؛ دوباره تلاش کنید");
+    const tok = q.get("sso_token");
+    if (tok) {
+      // مدل سبک: توکن صادرشده مرکز SSO/سامانه مادر در URL → پذیرش و ساخت نشست محلی
+      api("/auth/sso/accept", { method: "POST", body: { token: tok } })
+        .then((d) => { setToken(d.access_token); onLogin(d); })
+        .catch((e: any) => setErr(e.message));
+      history.replaceState({}, "", location.pathname);
+      return;
+    }
+    api("/auth/sso/config").then((d) => {
+      setSso(d);
+      // شروع خودکار جریان وقتی از پرتال مادر با ?sso=1 آمده (گارد یک‌بار اجرا)
+      if (d.enabled && q.get("sso") === "1" && !ssoErr && !sessionStorage.getItem("sso_auto_started")) {
+        sessionStorage.setItem("sso_auto_started", "1");
+        location.href = d.login_url || "/api/v1/auth/sso/login";
+      }
+    }).catch(() => {});
+  }, []);
   return (
     <div className="login-wrap">
       <div className="blob b1" /><div className="blob b2" /><div className="blob b3" />
@@ -41,9 +72,15 @@ function Login({ onLogin }: any) {
         <h2>صنعت‌یار۳۶۰</h2>
         <p className="subtitle">اتصال دانشجو به صنعت — زیرسیستم دانشجو۳۶۰</p>
         {err && <div className="alert error">{err}</div>}
-        <button className="sso-btn" onClick={() => { location.href = "/api/v1/auth/sso/login"; }}>
-          <span style={{ fontSize: 17 }}>🔐</span> ورود یکپارچه با حساب دانشجو۳۶۰ (SSO)
-        </button>
+        {sso?.enabled !== false && (
+          <a className="sso-btn" href={sso?.login_url || "/api/v1/auth/sso/login"}>
+            <span className="sso-ico">🎓</span>
+            <span className="sso-txt">
+              <b>{sso?.label || "ورود یکپارچه سازمانی"}</b>
+              <small>{sso?.sub_label || "با حساب پرتال دانشجویار۳۶۰ — بدون تکرار رمز"}</small>
+            </span>
+          </a>
+        )}
         <div className="login-or">یا ورود محلی</div>
         <div className="field"><label>ایمیل سازمانی</label>
           <input value={email} onChange={(e: any) => setEmail(e.target.value)} onKeyDown={(e: any) => e.key === "Enter" && go()} /></div>
@@ -62,8 +99,8 @@ function Login({ onLogin }: any) {
           ))}
         </div>
         <p className="login-note">
-          مسیر ورود یکپارچه این سامانه (<code>/api/v1/auth/sso/login</code>) نقطه شروع جریان OIDC است
-          و باید در پنل مدیریت سامانه‌های دانشجو۳۶۰ به‌عنوان «آدرس ورود» ثبت شود.
+          ثبت در پنل «مدیریت سامانه‌ها»ی دانشجویار۳۶۰ — کلید: <code>sanatyar</code> ·
+          Client ID: <code>sanatyar360</code> · آدرس ورود: <code>http://188.212.96.235:8092/api/v1/auth/sso/login</code>
         </p>
       </div>
     </div>
